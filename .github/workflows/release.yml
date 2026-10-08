@@ -71,6 +71,12 @@ jobs:
             gladys-assistant-integration.json > "$tmp"
           mv "$tmp" gladys-assistant-integration.json
 
+          # jq does not write JSON the way Prettier does (short arrays on
+          # several lines): reformat with the project's own Prettier version,
+          # or the next CI run on this branch fails its format check.
+          prettier_version="$(node -p "require('./package.json').devDependencies.prettier.replace(/^[^0-9]*/, '')")"
+          npx --yes "prettier@${prettier_version}" --write gladys-assistant-integration.json
+
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
       # Note: if the branch you release from is protected against direct pushes,

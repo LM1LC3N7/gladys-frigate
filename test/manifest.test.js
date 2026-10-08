@@ -110,3 +110,15 @@ test('the snapshot action requires the event id and can take the scene variable'
   assert.equal(eventId.required, true);
   assert.ok(action.timeout_seconds >= 15, 'leave time to fetch and resize the snapshot');
 });
+
+test('every manifest action has a handler in index.js (no "not implemented" button)', async () => {
+  const index = await readFile(new URL('../index.js', import.meta.url), 'utf8');
+  for (const [name, key] of Object.entries(MANIFEST_ACTIONS)) {
+    assert.ok(manifest.actions.some((action) => action.key === key));
+    assert.match(
+      index,
+      new RegExp(`onAction\\(MANIFEST_ACTIONS\\.${name}\\b`),
+      `${key} is handled`,
+    );
+  }
+});

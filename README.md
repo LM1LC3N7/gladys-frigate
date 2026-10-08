@@ -5,9 +5,11 @@ into [Gladys Assistant](https://gladysassistant.com). Goal: more reliable and
 safer than the Home Assistant integration, built on the official Gladys
 integration SDK.
 
-> **Status: in development (milestone 1 — scaffold).** The manifest and the
-> configuration are final for v1; the Frigate connection lands in the next
-> milestones. See the [CHANGELOG](./CHANGELOG.md).
+> **Status: in development (milestone 2).** The integration connects to
+> Frigate (certificate trust, authentication, version and cameras) and the
+> three Configuration buttons work; camera devices, the real-time feed and
+> the scene triggers land in the next milestones. See the
+> [CHANGELOG](./CHANGELOG.md).
 
 | Compatibility    | Versions                                             |
 | ---------------- | ---------------------------------------------------- |
@@ -48,11 +50,16 @@ index.js          wiring only
 src/config.js     configuration defaults, normalization, validation, warnings
 src/frigate/      Frigate client — NO Gladys dependency (enforced by ESLint)
   tlsTrust.js       trust-on-first-use policy + pin store (/data/tls-trust.json)
-  httpClient.js     (milestone 2) JWT auth on port 8971, TLS connector (undici), timeouts, retries
+  tlsConnector.js   TLS sockets applying that policy before any byte is sent (HTTP, MQTT)
+  httpClient.js     undici client: auth (probe, login, Bearer, renewal), timeouts, retries
+  capabilities.js   /api/version + /api/config -> normalized cameras & features
+  mqttProbe.js      one-shot broker check (the long-lived client comes with milestone 3)
+  errors.js         typed errors, never carrying a secret
   mqttClient.js     (milestone 3) MQTT connection, LWT frigate/available, typed topics
-  capabilities.js   (milestone 2) /api/version + /api/config -> normalized cameras & features
   eventEngine.js    (milestone 3) reviews + events -> deduplicated business transitions
 src/gladys/       thin adapter to the Gladys SDK
+  frigateSession.js connection lifecycle, status, the three Configuration buttons
+  messages.js       user-facing texts (en/fr) for errors, certificates, accounts
   keys.js           frozen manifest keys (scene triggers / actions)
   status.js         connection status message (errors and security warnings)
 ```

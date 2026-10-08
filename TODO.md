@@ -22,8 +22,10 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
       (`f8a3b4b`)
 - [x] Review of the above: pin store race, config and Docker fixes (see
       CHANGELOG "Fixed"); facts below re-checked in the Frigate sources
-- [ ] **Milestone 2 — httpClient + capabilities** (next)
-- [ ] Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine
+- [x] **Milestone 2 — httpClient + capabilities**, plus the three manifest
+      action buttons and the real connection status (released buttons
+      answered "not implemented" in 0.1.1)
+- [ ] **Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine** (next)
 - [ ] Milestone 4 — Gladys adapter: discovery, states, commands, images
 - [ ] Milestone 5 — scene triggers and scene action
 - [ ] Milestone 6 — docs (install, security, dedicated account, MQTT ACL,
@@ -44,7 +46,15 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
 | Scene keys             | Frozen in `src/gladys/keys.js` and pinned by `test/manifest.test.js`: triggers `review_alert`, `object_detected`, `object_entered_zone`; action `attach_event_snapshot`; manifest actions `test_connection`, `refresh_cameras`, `reset_certificate`. Never rename.                                                                                                                                                                                                                                                                                                                                                       |
 | Out of v1              | PTZ, faces and plates (beyond `sub_label`), classification, widgets, profiles, multi-instances, sub-containers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
-## Milestone 2 — httpClient + capabilities (next)
+## Milestone 2 — httpClient + capabilities (done)
+
+Done as planned below (`src/frigate/tlsConnector.js`, `httpClient.js`,
+`capabilities.js`, `mqttProbe.js`, `errors.js`; `src/gladys/frigateSession.js`,
+`messages.js`). Left for later milestones: `/api/stats` health (milestone 4,
+0.16 fallback of `status/<role>`), image endpoints (milestones 4-5), real
+0.16 / 0.17 / 0.18 config dumps as fixtures (the tests use a small synthetic
+config). Note: fetch refuses the "bad ports" of the Fetch standard (1, 9,
+6000, 6665-6669…): such a Frigate port reports a generic network error.
 
 `src/frigate/httpClient.js` (no Gladys import — ESLint enforces it):
 
@@ -183,7 +193,11 @@ data: { detections, objects, sub_labels, zones, audio }`. Labels may
       first use. The image creates `/data` owned by `node` (a fresh Docker
       volume was root-owned before); still check how the Gladys supervisor
       mounts `/data` (a bind mount keeps the host directory's owner).
-- [ ] Manifest actions: `test_connection` (version, cameras, broker, TLS
+- [x] Manifest actions `test_connection` (version, cameras, TLS, account,
+      broker check) and `reset_certificate` — done in milestone 2.
+- [ ] `refresh_cameras`: today it re-reads the Frigate config and lists the
+      cameras; add the re-publication of the discovery. Original plan:
+      `test_connection` (version, cameras, broker, TLS
       reason), `refresh_cameras` (re-read config, re-publish discovery),
       `reset_certificate` (`trustStore.reset()`, then reconnect; answer with
       the newly pinned fingerprint when the reconnection succeeds).
