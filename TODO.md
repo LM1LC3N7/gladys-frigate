@@ -25,8 +25,11 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
 - [x] **Milestone 2 — httpClient + capabilities**, plus the three manifest
       action buttons and the real connection status (released buttons
       answered "not implemented" in 0.1.1)
+- [x] **Milestone 4, part 1 — discovery + camera images**, brought forward
+      at the maintainer's request (0.1.2 answered no scan: the Discover tab
+      spun for minutes and showed nothing). See "Milestone 4" below.
 - [ ] **Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine** (next)
-- [ ] Milestone 4 — Gladys adapter: discovery, states, commands, images
+- [ ] Milestone 4, part 2 — Gladys adapter: states, commands, transports
 - [ ] Milestone 5 — scene triggers and scene action
 - [ ] Milestone 6 — docs (install, security, dedicated account, MQTT ACL,
       live video via go2rtc), CHANGELOG, first release
@@ -169,7 +172,24 @@ data: { detections, objects, sub_labels, zones, audio }`. Labels may
 
 ## Milestone 4 — Gladys adapter
 
-- [ ] `src/gladys/discovery.js`: one device per camera, only what the
+Part 1 done: `src/gladys/discovery.js` (one device per camera, image feature
+only, `should_poll` + `poll_frequency` 60 s so the core scheduler sends
+`device.poll`, which pushes an image: the dashboard widget only shows the
+last pushed image, and the core refuses one older than 1 h);
+`src/gladys/images.js` (Frigate resizes: `latest.jpg?height=&quality=`,
+stepped down 720→240 px and quality 70→35 until the `image/jpg;base64,…`
+string, prefix included, is ≤ 150 KB; the step that fitted is remembered;
+captures shared per camera, reused 2 s; pushes ≤ 12/min per device);
+`onScanRequest` (always answers, empty list when Frigate is down),
+`onPoll`, `onDeviceCreated` (first image at once), `onGetImage`; the
+discovery list is published after every successful read of Frigate
+(connection, retry, buttons). `sharp` is not used: Frigate resizes; keep it
+for the alert snapshot only if Frigate's resize is not enough there, else
+drop the dependency (maintainer's call, saves ~30 MB of image).
+Adding the other features below changes the device structure: the Discover
+tab then shows "Update" on the cameras already created (documented).
+
+- [ ] `src/gladys/discovery.js`: the other features, only what the
       Frigate config enables. Features: `camera/image`, `camera/enabled`
       (↔ `<cam>/enabled/set`; Gladys' `CAMERA.ENABLED` also stops Gladys
       polling the image, consistent with a disabled Frigate camera), switches
@@ -180,10 +200,9 @@ data: { detections, objects, sub_labels, zones, audio }`. Labels may
 - [ ] `states.js`: batch (≤ 100 per request), dedupe last values, stay under
       300 states/min; only for devices the user created (`gladys.devices`).
 - [ ] `commands.js`: `onSetValue` → MQTT/WS `set` topic.
-- [ ] `images.js`: `onGetImage` → `latest.jpg`, resized with **sharp**
-      (`sharp.cache(false)`, `concurrency(1)`) under 150 KB, as
-      `image/jpg;base64,…`; ≤ 12 images/min per camera; push the alert
-      snapshot.
+- [x] `images.js`: `onGetImage` → `latest.jpg` under 150 KB (resized by
+      Frigate, see above); ≤ 12 images/min per camera.
+- [ ] Push the alert snapshot (milestone 5 / review alerts).
 - [ ] `publishTransports`: `local`; `unreachable` / `degraded` from the
       debounced `status/<role>`; `setConnectionStatus` driven by
       `<prefix>/available` and the HTTP state, with the config warnings of
@@ -195,8 +214,8 @@ data: { detections, objects, sub_labels, zones, audio }`. Labels may
       mounts `/data` (a bind mount keeps the host directory's owner).
 - [x] Manifest actions `test_connection` (version, cameras, TLS, account,
       broker check) and `reset_certificate` — done in milestone 2.
-- [ ] `refresh_cameras`: today it re-reads the Frigate config and lists the
-      cameras; add the re-publication of the discovery. Original plan:
+- [x] `refresh_cameras`: re-reads the Frigate config and re-publishes the
+      discovery. Original plan:
       `test_connection` (version, cameras, broker, TLS
       reason), `refresh_cameras` (re-read config, re-publish discovery),
       `reset_certificate` (`trustStore.reset()`, then reconnect; answer with

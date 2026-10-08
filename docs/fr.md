@@ -1,8 +1,9 @@
 # Frigate
 
-> **Statut : en développement.** La connexion à Frigate et les trois boutons
-> de l'onglet Configuration fonctionnent ; les appareils caméra, le flux temps
-> réel et les déclencheurs de scène arrivent dans les prochaines versions.
+> **Statut : en développement.** La connexion à Frigate, les trois boutons
+> de l'onglet Configuration et les caméras (avec leur image) fonctionnent ;
+> les capteurs, les interrupteurs et les déclencheurs de scène arrivent dans
+> les prochaines versions.
 
 Intégrez les caméras de votre [Frigate NVR](https://frigate.video) dans Gladys
 Assistant : images, mouvement, objets détectés, alertes de revue,
@@ -92,6 +93,22 @@ rôles.
 - **Capteurs d'occupation par zone** (désactivés par défaut) : un capteur de
   présence par zone et par objet suivi.
 
+## Les caméras dans Gladys
+
+Ouvrez l'onglet **Découverte** de l'intégration : chaque caméra de Frigate y
+est listée (cliquez sur **Scanner** pour relire Frigate). Cliquez sur
+**Ajouter à Gladys** pour celles que vous voulez : chacune devient un appareil caméra pour le widget caméra du
+tableau de bord, le chat (« montre-moi le garage ») et l'action de scène
+« envoyer l'image de la caméra ».
+
+- L'image est rafraîchie **chaque minute**, et prise à l'instant quand
+  Gladys la demande (chat, scènes). Frigate la redimensionne pour tenir dans
+  les 150 Ko qu'accepte Gladys.
+- À venir : le mouvement, les objets détectés et les interrupteurs de la
+  caméra. Gladys affichera alors **Mettre à jour** à côté des caméras déjà
+  créées, dans l'onglet Découverte : cliquez dessus pour leur ajouter les
+  nouvelles fonctionnalités.
+
 ## Vidéo en direct
 
 La vidéo en direct ne passe pas par cette intégration. Utilisez le service
@@ -105,7 +122,8 @@ La vidéo en direct ne passe pas par cette intégration. Utilisez le service
   broker MQTT (ou le rappel que le WebSocket de Frigate est utilisé sans
   broker).
 - **Rafraîchir les caméras** : relit la configuration de Frigate (après
-  l'ajout d'une caméra, par exemple).
+  l'ajout d'une caméra, par exemple) et met à jour la liste de l'onglet
+  Découverte.
 - **Faire confiance au nouveau certificat** : oublie les certificats épinglés
   de Frigate et du broker, se reconnecte et affiche l'empreinte désormais
   épinglée. En cas de doute, comparez-la à celle de votre Frigate (commande

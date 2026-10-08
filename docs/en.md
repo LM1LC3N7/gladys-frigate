@@ -1,8 +1,8 @@
 # Frigate
 
-> **Status: in development.** The connection to Frigate and the three
-> buttons of the Configuration tab work; the camera devices, the real-time
-> feed and the scene triggers come in the next versions.
+> **Status: in development.** The connection to Frigate, the three buttons
+> of the Configuration tab and the cameras (with their image) work; the
+> sensors, the switches and the scene triggers come in the next versions.
 
 Bring the cameras of your [Frigate NVR](https://frigate.video) into Gladys
 Assistant: snapshots, motion, detected objects, review alerts, camera
@@ -87,6 +87,20 @@ commands (the switches) then need an **admin** Frigate account: since Frigate
 - **Zone occupancy sensors** (off by default): one presence sensor per zone
   and tracked object.
 
+## Cameras in Gladys
+
+Open the **Discover** tab of the integration: every Frigate camera is
+listed (press **Scan** to read Frigate again). Press **Add to Gladys** on the
+ones you want: each
+becomes a camera device for the dashboard camera widget, the chat ("show me
+the garage") and the "send camera image" scene action.
+
+- The image is refreshed **every minute**, and taken fresh when Gladys asks
+  for it (chat, scenes). Frigate resizes it to fit the 150 KB Gladys accepts.
+- Coming next: motion, detected objects and the camera switches. Gladys
+  will then show **Update** next to the cameras already created, in the
+  Discover tab: press it to add the new features to them.
+
 ## Live video
 
 Live video is not carried by this integration. Use the built-in **RTSP
@@ -99,7 +113,8 @@ camera** service of Gladys pointed at the Frigate go2rtc restream:
   certificate is trusted, the account used, and a connection to the MQTT
   broker (or a reminder that the Frigate WebSocket is used without one).
 - **Refresh the cameras**: reads the Frigate configuration again (for
-  instance after adding a camera).
+  instance after adding a camera) and updates the list of the Discover
+  tab.
 - **Trust the new certificate**: forgets the pinned certificates of Frigate
   and of the broker, reconnects, and shows the fingerprint now pinned.
   Compare it with the one of your Frigate (command above) when in doubt.

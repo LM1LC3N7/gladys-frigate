@@ -25,6 +25,7 @@ import { TRUST_REASONS } from './tlsTrust.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const TOKEN_RENEW_MARGIN_MS = 5 * 60 * 1000;
 const MAX_RETRY_AFTER_MS = 30_000;
 
@@ -190,7 +191,17 @@ export function createFrigateClient({
     }
   }
 
-  async function login() {
+  let loginInFlight = null;
+
+  /** Concurrent requests that hit a 401 share one login (rate-limited by Frigate). */
+  function login() {
+    loginInFlight ??= doLogin().finally(() => {
+      loginInFlight = null;
+    });
+    return loginInFlight;
+  }
+
+  async function doLogin() {
     const response = await once('/api/login', {
       method: 'POST',
       json: { user: username, password },
@@ -294,6 +305,21 @@ export function createFrigateClient({
     },
     getStats() {
       return this.getJson('/api/stats');
+    },
+    /**
+     * Latest frame of a camera, resized and re-encoded by Frigate.
+     * @param {string} camera Frigate camera name
+     * @param {{ height?: number, quality?: number }} [options]
+     * @returns {Promise<Buffer>} JPEG bytes
+     */
+    getLatestJpeg(camera, { height, quality } = {}) {
+      const query = new URLSearchParams();
+      if (height) query.set('height', String(Math.round(height)));
+      if (quality) query.set('quality', String(Math.round(quality)));
+      const search = query.size ? `?${query}` : '';
+      return request(`/api/${encodeURIComponent(camera)}/latest.jpg${search}`, {
+        maxBytes: MAX_IMAGE_BYTES,
+      });
     },
     /** How the last request authenticated, see `auth.mode`. */
     get authMode() {

@@ -9,6 +9,8 @@
 //     hit Frigate's login rate limit or hide a real problem).
 //   - The three manifest action buttons: test_connection, refresh_cameras,
 //     reset_certificate.
+//   - onConnected(capabilities) runs after every successful read of Frigate
+//     (index.js publishes the discovery list with it).
 //
 // Thin adapter: the Frigate logic lives in src/frigate/.
 // -----------------------------------------------------------------------------
@@ -62,6 +64,7 @@ function sentences(parts) {
  * @param {Function} [options.clientFactory] createFrigateClient (tests)
  * @param {Function} [options.mqttCheck] probeMqtt (tests)
  * @param {number} [options.retryDelayMs]
+ * @param {(capabilities: object) => Promise} [options.onConnected]
  */
 export function createFrigateSession({
   gladys,
@@ -70,6 +73,7 @@ export function createFrigateSession({
   clientFactory = createFrigateClient,
   mqttCheck = probeMqtt,
   retryDelayMs = RETRY_DELAY_MS,
+  onConnected = async () => {},
 }) {
   let config = null;
   let raw = {};
@@ -142,6 +146,10 @@ export function createFrigateSession({
       }
       throw err;
     }
+    // Outside the try: a failure here is not a Frigate failure.
+    await onConnected(capabilities).catch((err) =>
+      logger.warn(`Could not publish the Frigate cameras to Gladys: ${err.message}`),
+    );
   }
 
   async function checkMqtt() {
@@ -203,6 +211,23 @@ export function createFrigateSession({
       return capabilities;
     },
 
+    /** The Frigate HTTP client while connected, else null. */
+    get client() {
+      return capabilities ? client : null;
+    },
+
+    /**
+     * The capabilities, reading Frigate once more when not connected (a scan
+     * asked while Frigate was down). Null when Frigate still fails.
+     */
+    async ensureConnected() {
+      if (capabilities || !client) {
+        return capabilities;
+      }
+      await check(generation).catch(() => {});
+      return capabilities;
+    },
+
     /** "Test the connection": Frigate, its certificate and account, the broker. */
     async testConnection() {
       if (!client) {
@@ -251,8 +276,8 @@ export function createFrigateSession({
       }
       const summary = cameraSummary(capabilities);
       return {
-        en: `Frigate configuration read again: ${summary.en}. Creating the camera devices in Gladys comes with the next version.`,
-        fr: `Configuration de Frigate relue : ${summary.fr}. La création des appareils caméra dans Gladys arrive avec la prochaine version.`,
+        en: `Frigate configuration read again: ${summary.en}. The cameras are listed in the Discover tab.`,
+        fr: `Configuration de Frigate relue : ${summary.fr}. Les caméras sont listées dans l'onglet Découverte.`,
       };
     },
 

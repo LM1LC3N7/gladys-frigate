@@ -50,7 +50,7 @@ function fakeClientFactory(outcomes = []) {
   return factory;
 }
 
-function setup({ outcomes, mqttCheck, retryDelayMs = 60_000 } = {}) {
+function setup({ outcomes, mqttCheck, retryDelayMs = 60_000, onConnected } = {}) {
   const statuses = [];
   const resets = [];
   const gladys = {
@@ -71,6 +71,7 @@ function setup({ outcomes, mqttCheck, retryDelayMs = 60_000 } = {}) {
     clientFactory,
     mqttCheck: mqttCheck ?? (async () => ({ tlsDecision: null })),
     retryDelayMs,
+    onConnected,
   });
   return { session, statuses, resets, clientFactory };
 }
@@ -162,6 +163,35 @@ test('"Refresh the cameras" reads the Frigate configuration again', async (t) =>
   const answer = await session.refreshCameras();
   assert.match(answer.en, /2 cameras \(Front door, garage\)/);
   assert.match(answer.fr, /Configuration de Frigate relue/);
+  assert.match(answer.en, /listed in the Discover tab/);
+});
+
+test('every successful read hands the cameras over (discovery), a failure does not', async (t) => {
+  const handed = [];
+  const { session } = setup({
+    outcomes: [undefined, new UnreachableError('ECONNREFUSED')],
+    onConnected: async (capabilities) => handed.push(capabilities.cameras.length),
+  });
+  t.after(() => session.close());
+  await apply(session);
+  assert.deepEqual(handed, [2]);
+  assert.ok(session.client, 'the client is exposed while connected');
+  await session.refreshCameras();
+  assert.deepEqual(handed, [2], 'not on a failure');
+  assert.equal(session.client, null, 'no client while Frigate is down');
+  assert.equal((await session.ensureConnected()).cameras.length, 2, 'reads Frigate again');
+  assert.deepEqual(handed, [2, 2]);
+});
+
+test('a failing discovery publication does not mark Frigate as down', async (t) => {
+  const { session, statuses } = setup({
+    onConnected: async () => {
+      throw new Error('Gladys answered 400');
+    },
+  });
+  t.after(() => session.close());
+  await apply(session);
+  assert.equal(statuses.at(-1).connected, true);
 });
 
 test('"Trust the new certificate" forgets the pins, reconnects and tells what is pinned now', async (t) => {
@@ -232,4 +262,9 @@ test('end to end: real client and trust store against an https Frigate', async (
   const reset = await session.resetCertificate();
   assert.match(reset.en, /trusted on this first connection and pinned/);
   assert.equal(trustStore.list().length, 1);
+
+  const { createCameraImages } = await import('../src/gladys/images.js');
+  const images = createCameraImages({ getClient: () => session.client, publish: async () => {} });
+  const image = await images.capture('front');
+  assert.ok(image.startsWith('image/jpg;base64,/9'), 'a JPEG (FF D8)');
 });

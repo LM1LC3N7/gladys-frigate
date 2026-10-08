@@ -34,12 +34,15 @@ export const FRIGATE_CONFIG = {
  * @param {{ user: string, password: string } | null} [options.account] null = no auth
  * @param {string} [options.version]
  * @param {(req, res) => boolean} [options.override] return true when handled
+ * @param {(query: { camera: string, height: number, quality: number }) => number} [options.imageBytes]
+ *   size of the JPEG served by /api/<camera>/latest.jpg
  */
 export async function startFakeFrigate({
   secure = false,
   account = { user: 'gladys', password: 'pw' },
   version = '0.17.2-abcdef',
   override,
+  imageBytes = () => 20_000,
 } = {}) {
   const calls = [];
   let tokenExp = Math.floor(Date.now() / 1000) + 3600;
@@ -80,6 +83,22 @@ export async function startFakeFrigate({
     if (req.url === '/api/config') {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify(FRIGATE_CONFIG));
+      return;
+    }
+    const latest = /^\/api\/([^/]+)\/latest\.jpg(?:\?(.*))?$/.exec(req.url);
+    const camera = latest && decodeURIComponent(latest[1]);
+    if (latest && FRIGATE_CONFIG.cameras[camera]) {
+      const query = new URLSearchParams(latest[2] ?? '');
+      const size = imageBytes({
+        camera,
+        height: Number(query.get('height')),
+        quality: Number(query.get('quality')),
+      });
+      const jpeg = Buffer.alloc(size, 0x41);
+      jpeg[0] = 0xff;
+      jpeg[1] = 0xd8;
+      res.setHeader('content-type', 'image/jpeg');
+      res.end(jpeg);
       return;
     }
     res.statusCode = 404;

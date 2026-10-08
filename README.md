@@ -5,11 +5,11 @@ into [Gladys Assistant](https://gladysassistant.com). Goal: more reliable and
 safer than the Home Assistant integration, built on the official Gladys
 integration SDK.
 
-> **Status: in development (milestone 2).** The integration connects to
-> Frigate (certificate trust, authentication, version and cameras) and the
-> three Configuration buttons work; camera devices, the real-time feed and
-> the scene triggers land in the next milestones. See the
-> [CHANGELOG](./CHANGELOG.md).
+> **Status: in development.** The integration connects to Frigate
+> (certificate trust, authentication, version and cameras), the three
+> Configuration buttons work, and each camera can be created in Gladys with
+> its image (Discover tab). The sensors, switches and scene triggers land in
+> the next milestones. See the [CHANGELOG](./CHANGELOG.md).
 
 | Compatibility    | Versions                                             |
 | ---------------- | ---------------------------------------------------- |
@@ -59,13 +59,15 @@ src/frigate/      Frigate client — NO Gladys dependency (enforced by ESLint)
   eventEngine.js    (milestone 3) reviews + events -> deduplicated business transitions
 src/gladys/       thin adapter to the Gladys SDK
   frigateSession.js connection lifecycle, status, the three Configuration buttons
+  discovery.js      Frigate cameras -> Gladys devices (Discover tab)
+  images.js         camera images under 150 KB (resized by Frigate), shared captures
   messages.js       user-facing texts (en/fr) for errors, certificates, accounts
   keys.js           frozen manifest keys (scene triggers / actions)
   status.js         connection status message (errors and security warnings)
 ```
 
 Runtime dependencies: `@gladysassistant/integration-sdk`, `mqtt`, `sharp`
-(image resizing) and `undici` (custom CA and certificate pinning for `fetch`
+(image resizing; unused so far, Frigate resizes the camera images itself) and `undici` (custom CA and certificate pinning for `fetch`
 and the WebSocket fallback; v7, the last line supporting Node 20).
 
 ## Development

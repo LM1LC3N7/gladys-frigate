@@ -8,6 +8,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Cameras in Gladys: the Discover tab lists one camera device per Frigate
+  camera (published on every connection, on **Scan** and on **Refresh the
+  cameras**). Its image is pushed every minute (Gladys polls the device) and
+  captured fresh on demand (chat, scenes), resized by Frigate to fit the
+  150 KB Gladys accepts; concurrent captures of a camera share one request.
+
+### Fixed
+
+- **Scan** in the Discover tab spun for minutes and showed nothing: the
+  integration did not answer scan requests. It now always answers (an empty
+  list when Frigate cannot be read, the connection status says why).
+- Concurrent requests that needed a login each logged in to Frigate (whose
+  login is rate-limited); they now share one login.
+
+## [0.1.2]
+
+### Added
+
 - Connection to Frigate (milestone 2): TLS connector applying the trust on
   first use before any byte is sent (the Bearer token or the broker password
   never reach an untrusted peer), authentication (request without a token
