@@ -6,8 +6,8 @@
     "en": "Frigate NVR cameras: snapshots, motion, objects, reviews and scene triggers.",
     "fr": "Caméras Frigate NVR : images, mouvement, objets, revues et déclencheurs de scène."
   },
-  "version": "0.1.1",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-frigate:0.1.1",
+  "version": "0.1.2",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-frigate:0.1.2",
   "gladys_version": ">=5.1.0",
   "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-frigate/main/cover.png",
   "categories": ["security"],
