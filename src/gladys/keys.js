@@ -19,4 +19,7 @@ export const SCENE_ACTIONS = Object.freeze({
 export const MANIFEST_ACTIONS = Object.freeze({
   TEST_CONNECTION: 'test_connection',
   REFRESH_CAMERAS: 'refresh_cameras',
+  // Forget the certificates pinned on first use (Frigate and broker): the next
+  // connection trusts and pins the certificate it is served.
+  RESET_CERTIFICATE: 'reset_certificate',
 });

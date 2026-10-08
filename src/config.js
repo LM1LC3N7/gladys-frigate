@@ -10,19 +10,10 @@
 
 import { X509Certificate } from 'node:crypto';
 
-export const TLS_MODES = Object.freeze({
-  VERIFY: 'verify',
-  CUSTOM_CA: 'custom_ca',
-  FINGERPRINT: 'fingerprint',
-});
-
 export const DEFAULT_CONFIG = Object.freeze({
   frigate_url: '',
   username: '',
   password: '',
-  tls_mode: TLS_MODES.VERIFY,
-  tls_ca: '',
-  tls_fingerprint: '',
   mqtt_host: '',
   mqtt_port: 1883,
   mqtt_username: '',
@@ -32,6 +23,11 @@ export const DEFAULT_CONFIG = Object.freeze({
   min_score: 70,
   trigger_cooldown: 30,
   zone_sensors: false,
+  // Expert TLS settings, both optional. Without them, a certificate signed by
+  // a public authority is verified normally and a self-signed one (Frigate's
+  // default on port 8971) is trusted on first use, then pinned.
+  tls_fingerprint: '',
+  tls_ca: '',
 });
 
 const PEM_BLOCK = /-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/g;
@@ -85,16 +81,10 @@ export function normalizeFingerprint(raw) {
  * @param {Record<string, unknown>} [raw] configuration returned by the SDK
  */
 export function normalizeConfig(raw = {}) {
-  const tlsMode = Object.values(TLS_MODES).includes(raw.tls_mode)
-    ? raw.tls_mode
-    : DEFAULT_CONFIG.tls_mode;
   return {
     frigate_url: text(raw.frigate_url).replace(/\/+$/, ''),
     username: text(raw.username),
     password: raw.password == null ? '' : String(raw.password),
-    tls_mode: tlsMode,
-    tls_ca: normalizePem(raw.tls_ca),
-    tls_fingerprint: normalizeFingerprint(raw.tls_fingerprint),
     mqtt_host: text(raw.mqtt_host),
     mqtt_port: integer(raw.mqtt_port, DEFAULT_CONFIG.mqtt_port, 1, 65535),
     mqtt_username: text(raw.mqtt_username),
@@ -105,6 +95,8 @@ export function normalizeConfig(raw = {}) {
     min_score: integer(raw.min_score, DEFAULT_CONFIG.min_score, 0, 100),
     trigger_cooldown: integer(raw.trigger_cooldown, DEFAULT_CONFIG.trigger_cooldown, 0, 3600),
     zone_sensors: raw.zone_sensors === true,
+    tls_fingerprint: normalizeFingerprint(raw.tls_fingerprint),
+    tls_ca: normalizePem(raw.tls_ca),
   };
 }
 
@@ -154,30 +146,30 @@ export function validateConfig(config, raw = {}) {
       fr: "Renseignez l'utilisateur et le mot de passe Frigate, ou laissez les deux vides.",
     };
   }
-  if (config.tls_mode === TLS_MODES.CUSTOM_CA) {
-    if (!config.tls_ca) {
-      return {
-        en: 'Paste the PEM certificate of your certificate authority.',
-        fr: 'Collez le certificat PEM de votre autorité de certification.',
-      };
-    }
+  if (text(raw.tls_fingerprint) && !config.tls_fingerprint) {
+    return {
+      en: 'The certificate fingerprint must be a SHA-256 (64 hexadecimal characters).',
+      fr: "L'empreinte du certificat doit être un SHA-256 (64 caractères hexadécimaux).",
+    };
+  }
+  if (text(raw.tls_ca)) {
+    let valid = Boolean(config.tls_ca);
     try {
       for (const [block] of config.tls_ca.matchAll(PEM_BLOCK)) new X509Certificate(block);
     } catch {
+      valid = false;
+    }
+    if (!valid) {
       return {
         en: 'The certificate authority is not a valid PEM certificate.',
         fr: "L'autorité de certification n'est pas un certificat PEM valide.",
       };
     }
   }
-  if (config.tls_mode === TLS_MODES.FINGERPRINT && !config.tls_fingerprint) {
+  if (config.tls_fingerprint && config.tls_ca) {
     return {
-      en: text(raw.tls_fingerprint)
-        ? 'The certificate fingerprint must be a SHA-256 (64 hexadecimal characters).'
-        : 'Enter the SHA-256 fingerprint of the Frigate certificate.',
-      fr: text(raw.tls_fingerprint)
-        ? "L'empreinte du certificat doit être un SHA-256 (64 caractères hexadécimaux)."
-        : "Renseignez l'empreinte SHA-256 du certificat de Frigate.",
+      en: 'Fill in either the certificate fingerprint or the certificate authority, not both.',
+      fr: "Renseignez soit l'empreinte du certificat, soit l'autorité de certification, pas les deux.",
     };
   }
   if (usesMqtt(config) && /[+#\s]/.test(config.mqtt_topic_prefix)) {

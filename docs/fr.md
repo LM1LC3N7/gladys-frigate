@@ -19,21 +19,48 @@ personne, une voiture ou un animal apparaît.
 
 ## Connexion à Frigate
 
-| Champ                          | Valeur                                                                                                                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| URL de Frigate                 | `https://<ip-frigate>:8971` (port authentifié, recommandé). Le port `5000` fonctionne mais n'a **aucune authentification** : un avertissement s'affiche dans le statut.              |
-| Utilisateur / mot de passe     | Un **compte Frigate dédié**. Le rôle `viewer` (ou un rôle personnalisé limité à vos caméras) suffit : les commandes des caméras passent par MQTT, pas par l'API Frigate.             |
-| Vérification du certificat TLS | _Certificat reconnu_ pour un certificat signé par une autorité publique ; _Ma propre autorité_ pour coller votre CA ; _Empreinte épinglée_ pour le certificat auto-signé de Frigate. |
+| Champ                      | Valeur                                                                                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| URL de Frigate             | `https://<ip-frigate>:8971` (port authentifié, recommandé). Le port `5000` fonctionne mais n'a **aucune authentification** : un avertissement s'affiche dans le statut.  |
+| Utilisateur / mot de passe | Un **compte Frigate dédié**. Le rôle `viewer` (ou un rôle personnalisé limité à vos caméras) suffit : les commandes des caméras passent par MQTT, pas par l'API Frigate. |
 
-Pour lire l'empreinte du certificat de Frigate depuis une machine du réseau :
+### Certificat : approuvé à la première connexion
 
-```bash
-openssl s_client -connect <ip-frigate>:8971 </dev/null 2>/dev/null \
-  | openssl x509 -noout -fingerprint -sha256
-```
+Le port 8971 de Frigate utilise par défaut un certificat auto-signé. Vous
+n'avez rien à faire :
 
-Vérifiez que la valeur correspond bien au certificat servi par Frigate (par
-exemple depuis la machine de Frigate elle-même) avant de la coller.
+- un certificat **signé par une autorité** (Let's Encrypt, l'autorité de votre
+  entreprise installée sur le système…) est vérifié normalement, et ses
+  renouvellements continuent de fonctionner ;
+- un certificat **auto-signé** est **approuvé à la première connexion**, puis
+  **épinglé** : s'il change ensuite (Frigate réinstallé, certificat régénéré…
+  ou quelqu'un qui se fait passer pour Frigate), la connexion est refusée et
+  le statut explique pourquoi.
+
+Si vous savez que le certificat a changé pour une raison légitime, cliquez sur
+**Faire confiance au nouveau certificat** dans l'onglet Configuration : la
+connexion suivante approuve et épingle le nouveau certificat. Il en va de même
+pour le broker MQTT quand TLS est activé.
+
+La première connexion est le seul moment où le certificat n'est pas vérifié :
+faites-la sur votre réseau local, pas à travers un réseau non maîtrisé.
+
+### Réglages experts (facultatif)
+
+En bas de l'onglet Configuration, renseignez **un** de ces champs pour
+remplacer l'approbation à la première connexion :
+
+- **Empreinte SHA-256 du certificat épinglé** : seul ce certificat exact est
+  accepté. Pour la lire, depuis la machine de Frigate ou une machine de
+  confiance :
+
+  ```bash
+  openssl s_client -connect <ip-frigate>:8971 </dev/null 2>/dev/null \
+    | openssl x509 -noout -fingerprint -sha256
+  ```
+
+- **Autorité de certification (PEM)** : votre propre autorité ; le certificat
+  doit être signé par elle et correspondre au nom d'hôte.
 
 ## Flux temps réel (MQTT)
 

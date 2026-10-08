@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { X509Certificate } from 'node:crypto';
 import {
   DEFAULT_CONFIG,
-  TLS_MODES,
   configWarnings,
   normalizeConfig,
   normalizeFingerprint,
@@ -27,14 +26,12 @@ test('normalizeConfig trims values and clamps numbers', () => {
     min_score: -5,
     trigger_cooldown: 'abc',
     mqtt_topic_prefix: '/frigate/',
-    tls_mode: 'bogus',
   });
   assert.equal(config.frigate_url, 'https://frigate:8971');
   assert.equal(config.mqtt_port, 65535);
   assert.equal(config.min_score, 0);
   assert.equal(config.trigger_cooldown, 30);
   assert.equal(config.mqtt_topic_prefix, 'frigate');
-  assert.equal(config.tls_mode, TLS_MODES.VERIFY);
 });
 
 test('booleans only accept a strict true', () => {
@@ -83,23 +80,35 @@ test('the Frigate username and password go together', () => {
   assert.match(validateConfig(normalizeConfig({ ...BASE, password: '' })).en, /both/);
 });
 
-test('custom CA mode needs a valid PEM certificate', () => {
-  const config = (tls_ca) => normalizeConfig({ ...BASE, tls_mode: 'custom_ca', tls_ca });
-  assert.match(validateConfig(config('')).en, /Paste/);
-  assert.match(
-    validateConfig(config('-----BEGIN CERTIFICATE-----bm90IGEgY2VydA==-----END CERTIFICATE-----'))
-      .en,
-    /not a valid/,
-  );
-  assert.equal(validateConfig(config(TEST_CA_PEM)), null);
+test('the expert TLS fields are optional (trust on first use by default)', () => {
+  const config = normalizeConfig(BASE);
+  assert.equal(config.tls_fingerprint, '');
+  assert.equal(config.tls_ca, '');
+  assert.equal(validateConfig(config, BASE), null);
 });
 
-test('fingerprint mode needs a SHA-256 fingerprint', () => {
-  const config = (tls_fingerprint) =>
-    normalizeConfig({ ...BASE, tls_mode: 'fingerprint', tls_fingerprint });
-  assert.match(validateConfig(config(''), {}).en, /Enter/);
-  assert.match(validateConfig(config('AB:CD'), { tls_fingerprint: 'AB:CD' }).en, /64/);
-  assert.equal(validateConfig(config('ab'.repeat(32))), null);
+test('an expert CA must be a valid PEM certificate', () => {
+  const check = (tls_ca) =>
+    validateConfig(normalizeConfig({ ...BASE, tls_ca }), { ...BASE, tls_ca });
+  assert.match(check('not a certificate').en, /not a valid/);
+  assert.match(
+    check('-----BEGIN CERTIFICATE-----bm90IGEgY2VydA==-----END CERTIFICATE-----').en,
+    /not a valid/,
+  );
+  assert.equal(check(TEST_CA_PEM), null);
+  assert.equal(check(TEST_CA_PEM.replace(/\n/g, ' ')), null, 'a single-line paste is accepted');
+});
+
+test('an expert fingerprint must be a SHA-256', () => {
+  const check = (tls_fingerprint) =>
+    validateConfig(normalizeConfig({ ...BASE, tls_fingerprint }), { ...BASE, tls_fingerprint });
+  assert.match(check('AB:CD').en, /64/);
+  assert.equal(check('ab'.repeat(32)), null);
+});
+
+test('the expert fingerprint and CA are mutually exclusive', () => {
+  const raw = { ...BASE, tls_fingerprint: 'ab'.repeat(32), tls_ca: TEST_CA_PEM };
+  assert.match(validateConfig(normalizeConfig(raw), raw).en, /not both/);
 });
 
 test('MQTT is optional: without a host, the WebSocket feed is used', () => {

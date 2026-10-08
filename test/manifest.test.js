@@ -41,12 +41,16 @@ test('passwords are secret fields', () => {
   }
 });
 
-test('the TLS mode options match the code', () => {
-  const field = valueFields.find((f) => f.key === 'tls_mode');
-  assert.deepEqual(
-    field.options.map((o) => o.value),
-    ['verify', 'custom_ca', 'fingerprint'],
-  );
+test('the expert TLS fields are optional and come last', () => {
+  const keys = manifest.config_schema.map((f) => f.key);
+  assert.deepEqual(keys.slice(-3), ['expert_section', 'tls_fingerprint', 'tls_ca']);
+  for (const key of ['tls_fingerprint', 'tls_ca']) {
+    assert.notEqual(valueFields.find((f) => f.key === key).required, true);
+  }
+});
+
+test('a reset button lets the user trust a new self-signed certificate', () => {
+  assert.ok(manifest.actions.some((a) => a.key === MANIFEST_ACTIONS.RESET_CERTIFICATE));
 });
 
 // Published keys are stored in the users' scenes: never rename or remove one.

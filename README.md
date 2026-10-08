@@ -18,6 +18,8 @@ integration SDK.
 User documentation: [`docs/en.md`](./docs/en.md) / [`docs/fr.md`](./docs/fr.md)
 (re-hosted by the Gladys store, linked from the Configuration screen).
 
+Work in progress, decisions and next steps: [`TODO.md`](./TODO.md).
+
 ## v1 scope
 
 - **One device per Frigate camera**, discovering only what the Frigate
@@ -31,7 +33,9 @@ User documentation: [`docs/en.md`](./docs/en.md) / [`docs/fr.md`](./docs/fr.md)
 - **Real-time feed** from the Frigate MQTT broker, or from the Frigate
   WebSocket when no broker is configured.
 - **Security**: authenticated port 8971 with a dedicated (viewer) account,
-  TLS verified by default, custom CA or pinned SHA-256 fingerprint, no secret
+  certificates verified by a CA or, when self-signed, trusted on first use and
+  pinned (with a "Trust the new certificate" button); expert pinned
+  fingerprint or custom CA; no secret
   in logs or URLs.
 
 Out of v1: PTZ, faces and plates, classification, widgets, profiles,
@@ -43,7 +47,8 @@ multiple Frigate instances, sub-containers.
 index.js          wiring only
 src/config.js     configuration defaults, normalization, validation, warnings
 src/frigate/      Frigate client — NO Gladys dependency (enforced by ESLint)
-  httpClient.js     (milestone 2) JWT auth on port 8971, TLS modes (undici), timeouts, retries
+  tlsTrust.js       trust-on-first-use policy + pin store (/data/tls-trust.json)
+  httpClient.js     (milestone 2) JWT auth on port 8971, TLS connector (undici), timeouts, retries
   mqttClient.js     (milestone 3) MQTT connection, LWT frigate/available, typed topics
   capabilities.js   (milestone 2) /api/version + /api/config -> normalized cameras & features
   eventEngine.js    (milestone 3) reviews + events -> deduplicated business transitions

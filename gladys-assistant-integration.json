@@ -21,8 +21,8 @@
         "fr": "Serveur Frigate"
       },
       "description": {
-        "en": "Frigate 0.16 or later. Use the authenticated port (https://<ip>:8971) with a dedicated Frigate account; the viewer role is enough, camera commands go through MQTT. Port 5000 has no authentication at all.",
-        "fr": "Frigate 0.16 ou plus. Utilisez le port authentifié (https://<ip>:8971) avec un compte Frigate dédié ; le rôle viewer suffit, les commandes des caméras passent par MQTT. Le port 5000 n'a aucune authentification."
+        "en": "Frigate 0.16 or later. Use the authenticated port (https://<ip>:8971) with a dedicated Frigate account; the viewer role is enough, camera commands go through MQTT. Frigate's self-signed certificate is trusted on first connection, then pinned. Port 5000 has no authentication at all.",
+        "fr": "Frigate 0.16 ou plus. Utilisez le port authentifié (https://<ip>:8971) avec un compte Frigate dédié ; le rôle viewer suffit, les commandes des caméras passent par MQTT. Le certificat auto-signé de Frigate est approuvé à la première connexion, puis épinglé. Le port 5000 n'a aucune authentification."
       },
       "links": [
         {
@@ -61,70 +61,6 @@
       "label": {
         "en": "Frigate password",
         "fr": "Mot de passe Frigate"
-      }
-    },
-    {
-      "key": "tls_mode",
-      "type": "select",
-      "label": {
-        "en": "TLS certificate check",
-        "fr": "Vérification du certificat TLS"
-      },
-      "default": "verify",
-      "options": [
-        {
-          "value": "verify",
-          "label": {
-            "en": "Trusted certificate (standard check)",
-            "fr": "Certificat reconnu (vérification standard)"
-          }
-        },
-        {
-          "value": "custom_ca",
-          "label": {
-            "en": "My own certificate authority",
-            "fr": "Ma propre autorité de certification"
-          }
-        },
-        {
-          "value": "fingerprint",
-          "label": {
-            "en": "Pinned certificate fingerprint",
-            "fr": "Empreinte de certificat épinglée"
-          }
-        }
-      ]
-    },
-    {
-      "key": "tls_ca",
-      "type": "string",
-      "label": {
-        "en": "Certificate authority (PEM)",
-        "fr": "Autorité de certification (PEM)"
-      },
-      "description": {
-        "en": "Only for \"My own certificate authority\". Paste the PEM certificate, a single line is fine.",
-        "fr": "Uniquement pour « Ma propre autorité de certification ». Collez le certificat PEM, une seule ligne suffit."
-      },
-      "placeholder": {
-        "en": "-----BEGIN CERTIFICATE----- …",
-        "fr": "-----BEGIN CERTIFICATE----- …"
-      }
-    },
-    {
-      "key": "tls_fingerprint",
-      "type": "string",
-      "label": {
-        "en": "Certificate SHA-256 fingerprint",
-        "fr": "Empreinte SHA-256 du certificat"
-      },
-      "description": {
-        "en": "Only for \"Pinned certificate fingerprint\" (Frigate's self-signed certificate on port 8971). See the documentation to read it.",
-        "fr": "Uniquement pour « Empreinte de certificat épinglée » (certificat auto-signé de Frigate sur le port 8971). Voir la documentation pour la lire."
-      },
-      "placeholder": {
-        "en": "AB:CD:EF:…",
-        "fr": "AB:CD:EF:…"
       }
     },
     {
@@ -195,8 +131,8 @@
         "fr": "MQTT sur TLS"
       },
       "description": {
-        "en": "The TLS certificate check selected above also applies to the broker.",
-        "fr": "La vérification du certificat TLS choisie plus haut s'applique aussi au broker."
+        "en": "The broker certificate is checked like Frigate's: trusted if signed by an authority, otherwise trusted on first connection and pinned.",
+        "fr": "Le certificat du broker est vérifié comme celui de Frigate : approuvé s'il est signé par une autorité, sinon approuvé à la première connexion puis épinglé."
       },
       "default": false
     },
@@ -255,6 +191,46 @@
         "fr": "Ajoute un capteur de présence par zone et par objet suivi."
       },
       "default": false
+    },
+    {
+      "key": "expert_section",
+      "type": "section",
+      "label": {
+        "en": "Expert: TLS certificate",
+        "fr": "Expert : certificat TLS"
+      },
+      "description": {
+        "en": "Optional. By default, a certificate signed by an authority is verified normally, and a self-signed one is trusted on the first connection, then pinned: if it changes later, the connection is refused until you press \"Trust the new certificate\". Fill in ONE of the fields below to pin a known certificate or use your own authority instead.",
+        "fr": "Facultatif. Par défaut, un certificat signé par une autorité est vérifié normalement, et un certificat auto-signé est approuvé à la première connexion puis épinglé : s'il change ensuite, la connexion est refusée jusqu'à ce que vous cliquiez sur « Faire confiance au nouveau certificat ». Renseignez UN des champs ci-dessous pour épingler un certificat connu ou utiliser votre propre autorité."
+      }
+    },
+    {
+      "key": "tls_fingerprint",
+      "type": "string",
+      "label": {
+        "en": "Pinned certificate SHA-256 fingerprint",
+        "fr": "Empreinte SHA-256 du certificat épinglé"
+      },
+      "placeholder": {
+        "en": "AB:CD:EF:…",
+        "fr": "AB:CD:EF:…"
+      }
+    },
+    {
+      "key": "tls_ca",
+      "type": "string",
+      "label": {
+        "en": "Certificate authority (PEM)",
+        "fr": "Autorité de certification (PEM)"
+      },
+      "description": {
+        "en": "Paste the PEM certificate of your authority; a single line is fine.",
+        "fr": "Collez le certificat PEM de votre autorité ; une seule ligne suffit."
+      },
+      "placeholder": {
+        "en": "-----BEGIN CERTIFICATE----- …",
+        "fr": "-----BEGIN CERTIFICATE----- …"
+      }
     }
   ],
   "actions": [
@@ -273,6 +249,14 @@
         "fr": "Rafraîchir les caméras"
       },
       "timeout_seconds": 60
+    },
+    {
+      "key": "reset_certificate",
+      "label": {
+        "en": "Trust the new certificate",
+        "fr": "Faire confiance au nouveau certificat"
+      },
+      "timeout_seconds": 30
     }
   ],
   "scene_triggers": [

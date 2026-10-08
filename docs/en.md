@@ -18,22 +18,46 @@ up.
 
 ## Frigate connection
 
-| Field                 | What to enter                                                                                                                                                                              |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Frigate URL           | `https://<frigate-ip>:8971` (authenticated port, recommended). Port `5000` works but has **no authentication at all**: a warning is shown in the connection status.                        |
-| Username / password   | A **dedicated Frigate account**. The `viewer` role (or a custom role limited to your cameras) is enough: camera commands go through MQTT, not through the Frigate API.                     |
-| TLS certificate check | _Trusted certificate_ for a certificate signed by a public authority; _My own certificate authority_ to paste your CA; _Pinned fingerprint_ for Frigate's default self-signed certificate. |
+| Field               | What to enter                                                                                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frigate URL         | `https://<frigate-ip>:8971` (authenticated port, recommended). Port `5000` works but has **no authentication at all**: a warning is shown in the connection status.    |
+| Username / password | A **dedicated Frigate account**. The `viewer` role (or a custom role limited to your cameras) is enough: camera commands go through MQTT, not through the Frigate API. |
 
-To read the fingerprint of the Frigate certificate from any machine of your
-network:
+### Certificate: trusted on first connection
 
-```bash
-openssl s_client -connect <frigate-ip>:8971 </dev/null 2>/dev/null \
-  | openssl x509 -noout -fingerprint -sha256
-```
+Frigate's port 8971 serves a self-signed certificate by default. You do not
+have to do anything:
 
-Check that the value matches the certificate Frigate really serves (for
-instance from the Frigate host itself) before pasting it.
+- a certificate **signed by an authority** (Let's Encrypt, your company CA
+  installed in the system…) is verified normally, and renewals keep working;
+- a **self-signed** certificate is **trusted on the first connection**, then
+  **pinned**: if it changes later (Frigate reinstalled, certificate
+  regenerated… or someone impersonating Frigate), the connection is refused
+  and the status explains why.
+
+When you know the certificate changed for a legitimate reason, press
+**Trust the new certificate** in the Configuration tab: the next connection
+trusts and pins the new certificate. The same applies to the MQTT broker when
+TLS is enabled.
+
+The first connection is the only moment the certificate is not checked: run
+it on your local network, not through an untrusted network.
+
+### Expert settings (optional)
+
+At the bottom of the Configuration tab, fill in **one** of these fields to
+replace the trust on first use:
+
+- **Pinned certificate SHA-256 fingerprint**: only this exact certificate is
+  accepted. To read it, from the Frigate host itself or a trusted machine:
+
+  ```bash
+  openssl s_client -connect <frigate-ip>:8971 </dev/null 2>/dev/null \
+    | openssl x509 -noout -fingerprint -sha256
+  ```
+
+- **Certificate authority (PEM)**: your own authority; the certificate must be
+  signed by it and match the host name.
 
 ## Real-time feed (MQTT)
 
