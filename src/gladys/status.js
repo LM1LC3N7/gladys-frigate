@@ -19,6 +19,16 @@ function join(parts, lang) {
 }
 
 /**
+ * One status message out of several sentences (en/fr each), kept under the
+ * length Gladys accepts. Empty parts are skipped; no part at all -> undefined.
+ * @param {Array<{ en: string, fr: string } | null | undefined>} parts
+ */
+export function composeMessage(parts) {
+  const kept = parts.filter(Boolean);
+  return kept.length === 0 ? undefined : { en: join(kept, 'en'), fr: join(kept, 'fr') };
+}
+
+/**
  * @param {ReturnType<import('../config.js').normalizeConfig>} config
  * @param {Record<string, unknown>} [raw]
  * @returns {{ valid: boolean, message: { en: string, fr: string } | undefined }}
@@ -28,9 +38,5 @@ export function describeConfig(config, raw) {
   if (error) {
     return { valid: false, message: error };
   }
-  const warnings = configWarnings(config);
-  if (warnings.length === 0) {
-    return { valid: true, message: undefined };
-  }
-  return { valid: true, message: { en: join(warnings, 'en'), fr: join(warnings, 'fr') } };
+  return { valid: true, message: composeMessage(configWarnings(config)) };
 }

@@ -1,7 +1,8 @@
 # Frigate
 
-> **Status: in development.** This page describes the configuration of the
-> upcoming first release. The Frigate connection is not available yet.
+> **Status: in development.** The connection to Frigate and the three
+> buttons of the Configuration tab work; the camera devices, the real-time
+> feed and the scene triggers come in the next versions.
 
 Bring the cameras of your [Frigate NVR](https://frigate.video) into Gladys
 Assistant: snapshots, motion, detected objects, review alerts, camera
@@ -91,6 +92,21 @@ commands (the switches) then need an **admin** Frigate account: since Frigate
 Live video is not carried by this integration. Use the built-in **RTSP
 camera** service of Gladys pointed at the Frigate go2rtc restream:
 `rtsp://<frigate-ip>:8554/<camera_name>`.
+
+## Configuration buttons
+
+- **Test the connection**: Frigate's version and cameras, how its
+  certificate is trusted, the account used, and a connection to the MQTT
+  broker (or a reminder that the Frigate WebSocket is used without one).
+- **Refresh the cameras**: reads the Frigate configuration again (for
+  instance after adding a camera).
+- **Trust the new certificate**: forgets the pinned certificates of Frigate
+  and of the broker, reconnects, and shows the fingerprint now pinned.
+  Compare it with the one of your Frigate (command above) when in doubt.
+
+When Frigate cannot be reached, the integration tries again every minute. A
+refused certificate or refused credentials wait for you instead: retrying
+would only lock the account out (Frigate limits failed logins).
 
 ## Troubleshooting
 
