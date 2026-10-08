@@ -14,6 +14,7 @@ import { cameraNameOfDevice, publishDiscovery } from './src/gladys/discovery.js'
 import { createFrigateSession } from './src/gladys/frigateSession.js';
 import { createCameraImages } from './src/gladys/images.js';
 import { MANIFEST_ACTIONS } from './src/gladys/keys.js';
+import { describeTransition } from './src/gladys/messages.js';
 
 // /data is the only writable location of the container (see the Dockerfile).
 const trustStore = new TrustStore({ filePath: '/data/tls-trust.json', logger });
@@ -24,6 +25,8 @@ const session = createFrigateSession({
   logger,
   // Every successful read of Frigate refreshes the Discover tab.
   onConnected: (capabilities) => publishDiscovery(gladys, capabilities),
+  // Logged until the scene triggers use them (milestone 5).
+  onTransition: (transition) => logger.info(describeTransition(transition)),
 });
 const images = createCameraImages({
   getClient: () => session.client,

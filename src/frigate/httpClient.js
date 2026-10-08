@@ -321,6 +321,31 @@ export function createFrigateClient({
         maxBytes: MAX_IMAGE_BYTES,
       });
     },
+    /**
+     * Headers for the WebSocket handshake: makes one authenticated request
+     * first (logs in, or renews a token close to its expiry), then hands
+     * the current token over. A 404 (no /api/profile) is not an error.
+     */
+    async webSocketHeaders() {
+      try {
+        await request('/api/profile', { maxBytes: 64 * 1024 });
+      } catch (err) {
+        if (!(err instanceof HttpStatusError && err.status === 404)) {
+          throw err;
+        }
+      }
+      return auth.token ? { authorization: `Bearer ${auth.token}` } : {};
+    },
+    /** ws(s)://<frigate>/ws, on the same origin as the API. */
+    get webSocketUrl() {
+      const url = target('/ws');
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      return url.href;
+    },
+    /** The undici dispatcher: the WebSocket goes through the same TLS trust. */
+    get dispatcher() {
+      return dispatcher;
+    },
     /** How the last request authenticated, see `auth.mode`. */
     get authMode() {
       return auth.mode;

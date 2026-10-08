@@ -13,6 +13,18 @@ All notable changes to this project are documented here. The format follows
   cameras**). Its image is pushed every minute (Gladys polls the device) and
   captured fresh on demand (chat, scenes), resized by Frigate to fit the
   150 KB Gladys accepts; concurrent captures of a camera share one request.
+- Real-time feed (milestone 3): the Frigate MQTT broker, or the Frigate
+  WebSocket when no broker is configured. Reconnects on its own (MQTT
+  subscriptions renewed, WebSocket token renewed); over TLS the broker
+  password and the Frigate token only leave once the certificate is trusted;
+  a refused certificate or account stops it instead of looping. Its state and
+  Frigate's own `available` announcement are part of the connection status;
+  Frigate's configuration is read again when it comes back online.
+- Event engine: Frigate events and reviews become one transition per
+  incident (object detected, object entered a zone, review alert, including
+  a detection escalated to an alert), without false positives or stationary
+  objects, above the minimum confidence, with a cooldown per camera and
+  object type. Written to the logs until the scene triggers use them.
 
 ### Fixed
 

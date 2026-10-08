@@ -11,6 +11,12 @@
 //     reset_certificate.
 //   - onConnected(capabilities) runs after every successful read of Frigate
 //     (index.js publishes the discovery list with it).
+//   - The real-time feed (milestone 3): once Frigate has been read, the MQTT
+//     broker (or the Frigate WebSocket without a broker) is followed; its
+//     messages are typed (src/frigate/topics.js), turned into transitions
+//     (src/frigate/eventEngine.js) handed to onTransition, and its state is
+//     part of the connection status. When Frigate announces it is back
+//     online, its configuration is read again (cameras may have changed).
 //
 // Thin adapter: the Frigate logic lives in src/frigate/.
 // -----------------------------------------------------------------------------
@@ -18,9 +24,13 @@
 import { configWarnings, usesMqtt } from '../config.js';
 import { readCapabilities } from '../frigate/capabilities.js';
 import { HttpStatusError, UnreachableError } from '../frigate/errors.js';
+import { createEventEngine } from '../frigate/eventEngine.js';
 import { createFrigateClient } from '../frigate/httpClient.js';
+import { createMqttFeed } from '../frigate/mqttClient.js';
 import { probeMqtt } from '../frigate/mqttProbe.js';
-import { describeAuth, describeError, describeTls } from './messages.js';
+import { parseMessage } from '../frigate/topics.js';
+import { createWsFeed } from '../frigate/wsClient.js';
+import { describeAuth, describeError, describeFeed, describeTls } from './messages.js';
 import { composeMessage, describeConfig } from './status.js';
 
 const RETRY_DELAY_MS = 60_000;
@@ -56,6 +66,24 @@ function sentences(parts) {
   };
 }
 
+/** MQTT when a broker is configured, else the Frigate WebSocket. */
+export function createFeed({ config, client, trustStore }) {
+  if (!usesMqtt(config)) {
+    return createWsFeed({ client });
+  }
+  return createMqttFeed({
+    host: config.mqtt_host,
+    port: config.mqtt_port,
+    username: config.mqtt_username,
+    password: config.mqtt_password,
+    tls: config.mqtt_tls,
+    trustStore,
+    manualFingerprint: config.tls_fingerprint,
+    ca: config.tls_ca,
+    prefix: config.mqtt_topic_prefix,
+  });
+}
+
 /**
  * @param {object} options
  * @param {{ setConnectionStatus: Function }} options.gladys
@@ -65,6 +93,9 @@ function sentences(parts) {
  * @param {Function} [options.mqttCheck] probeMqtt (tests)
  * @param {number} [options.retryDelayMs]
  * @param {(capabilities: object) => Promise} [options.onConnected]
+ * @param {Function} [options.feedFactory] createFeed (tests)
+ * @param {(transition: object) => void} [options.onTransition] eventEngine output
+ * @param {(message: object) => void} [options.onMessage] every typed message
  */
 export function createFrigateSession({
   gladys,
@@ -74,6 +105,9 @@ export function createFrigateSession({
   mqttCheck = probeMqtt,
   retryDelayMs = RETRY_DELAY_MS,
   onConnected = async () => {},
+  feedFactory = createFeed,
+  onTransition = () => {},
+  onMessage = () => {},
 }) {
   let config = null;
   let raw = {};
@@ -83,14 +117,88 @@ export function createFrigateSession({
   // Bumped on every apply(): a slow check of an older configuration must
   // not overwrite the status of the current one.
   let generation = 0;
+  let feed = null;
+  let frigateOnline = null; // last `available` of Frigate, null = unknown
+  let known = { cameras: new Set(), zones: new Set() };
+  let engine = createEventEngine();
+  let lastStatus = null;
 
+  /** Publishes the status, unless it is the one already shown. */
   function setStatus(connected, message) {
-    return gladys
-      .setConnectionStatus(connected, message)
-      .catch((err) => logger.warn(`Could not report the connection status: ${err.message}`));
+    const key = JSON.stringify([connected, message]);
+    if (key === lastStatus) {
+      return Promise.resolve();
+    }
+    lastStatus = key;
+    return gladys.setConnectionStatus(connected, message).catch((err) => {
+      lastStatus = null;
+      logger.warn(`Could not report the connection status: ${err.message}`);
+    });
+  }
+
+  /** Status while Frigate answers: connected unless the feed gave up. */
+  function publishConnected() {
+    if (!capabilities) {
+      return Promise.resolve();
+    }
+    return setStatus(feed?.status.state !== 'failed', connectedMessage());
+  }
+
+  function route(topic, payload) {
+    const message = parseMessage(topic, payload, known);
+    if (!message) {
+      return;
+    }
+    if (message.type === 'available') {
+      const wasOffline = frigateOnline === false;
+      if (frigateOnline !== message.online) {
+        frigateOnline = message.online;
+        logger.info(`Frigate announces it is ${message.state}`);
+        publishConnected();
+      }
+      if (message.online && wasOffline) {
+        // Back from a restart: its configuration may have changed.
+        check(generation).catch(() => {});
+      }
+    }
+    for (const transition of engine.handle(message)) {
+      onTransition(transition);
+    }
+    onMessage(message);
+  }
+
+  function startFeed(currentGeneration) {
+    if (feed || currentGeneration !== generation || !client) {
+      return;
+    }
+    frigateOnline = null;
+    const created = feedFactory({ config, client, trustStore });
+    feed = created;
+    logger.info(`Real-time feed: ${created.mode} (${created.endpoint})`);
+    created.on('status', ({ state, error }) => {
+      if (feed !== created) {
+        return;
+      }
+      const log = state === 'connected' || state === 'connecting' ? 'info' : 'warn';
+      logger[log](`Real-time feed ${state}${error ? `: ${error.message}` : ''}`);
+      publishConnected();
+    });
+    created.on('message', (topic, payload) => {
+      if (feed === created) {
+        route(topic, payload);
+      }
+    });
+  }
+
+  async function stopFeed() {
+    const old = feed;
+    feed = null;
+    frigateOnline = null;
+    await old?.close();
   }
 
   async function replaceClient() {
+    await stopFeed();
     await client?.close();
     client = clientFactory({
       url: config.frigate_url,
@@ -116,6 +224,7 @@ export function createFrigateSession({
         en: `Connected to Frigate ${version.raw}, ${summary.en}.`,
         fr: `Connecté à Frigate ${version.raw}, ${summary.fr}.`,
       },
+      feed ? describeFeed(feed, frigateOnline) : null,
       ...configWarnings(config),
     ]);
   }
@@ -129,10 +238,16 @@ export function createFrigateSession({
         return;
       }
       capabilities = result;
+      known = {
+        cameras: new Set(result.cameras.map((camera) => camera.name)),
+        zones: new Set(result.cameras.flatMap((camera) => camera.zones.map((zone) => zone.name))),
+      };
+      engine.setCameras(result.cameras);
       logger.info(
         `Connected to Frigate ${capabilities.version.raw} (${capabilities.cameras.length} cameras)`,
       );
-      await setStatus(true, connectedMessage());
+      startFeed(currentGeneration);
+      await publishConnected();
     } catch (err) {
       if (currentGeneration !== generation) {
         return;
@@ -194,8 +309,15 @@ export function createFrigateSession({
       config = newConfig;
       raw = rawConfig;
       capabilities = null;
+      // Gladys may have restarted: show the status again even if unchanged.
+      lastStatus = null;
+      engine = createEventEngine({
+        minScore: config.min_score,
+        cooldownSeconds: config.trigger_cooldown,
+      });
       const { valid, message } = describeConfig(config, raw);
       if (!valid) {
+        await stopFeed();
         await client?.close();
         client = null;
         logger.warn(message.en);
@@ -234,6 +356,11 @@ export function createFrigateSession({
         return invalidConfigAnswer();
       }
       const parts = [];
+      // A feed stopped on a refused certificate or account: try it again
+      // (the user may have fixed the broker, or trusted the certificate).
+      if (feed?.status.state === 'failed') {
+        await stopFeed();
+      }
       try {
         await check(generation);
         parts.push(
@@ -325,9 +452,15 @@ export function createFrigateSession({
       return sentences(parts);
     },
 
+    /** The real-time feed (null before Frigate was read). */
+    get feed() {
+      return feed;
+    },
+
     async close() {
       generation += 1;
       clearTimeout(retryTimer);
+      await stopFeed();
       await client?.close();
       client = null;
     },

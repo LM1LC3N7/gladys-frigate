@@ -28,8 +28,10 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
 - [x] **Milestone 4, part 1 — discovery + camera images**, brought forward
       at the maintainer's request (0.1.2 answered no scan: the Discover tab
       spun for minutes and showed nothing). See "Milestone 4" below.
-- [ ] **Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine** (next)
-- [ ] Milestone 4, part 2 — Gladys adapter: states, commands, transports
+- [x] **Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine**
+- [ ] **Milestone 4, part 2 — Gladys adapter: states, commands, transports**
+      (next; ask the maintainer whether milestone 5, the scene triggers, goes
+      first: the transitions are ready and only logged today)
 - [ ] Milestone 5 — scene triggers and scene action
 - [ ] Milestone 6 — docs (install, security, dedicated account, MQTT ACL,
       live video via go2rtc), CHANGELOG, first release
@@ -121,9 +123,40 @@ config). Note: fetch refuses the "bad ports" of the Fetch standard (1, 9,
       fingerprint, expert CA), auth flows, retries with fake timers,
       capabilities on every fixture.
 
-## Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine
+## Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine (done)
 
-- [ ] `mqttClient.js` (mqtt.js 5): reconnect, resubscribe on reconnect,
+Done: `src/frigate/mqttStream.js` (stream builder shared with the probe),
+`mqttClient.js`, `wsClient.js`, `topics.js`, `eventEngine.js`; the session
+starts the feed once Frigate was read, routes typed messages to the engine
+(`onTransition`, logged by `index.js` until milestone 5) and to `onMessage`
+(hook for milestone 4 states), shows the feed state and Frigate's
+`available` in the status, re-reads the config when Frigate comes back
+online, and restarts a failed feed on "Test the connection". Choices:
+
+- Subscriptions are explicit, non-overlapping filters, not `<prefix>/#`
+  (the retained `<cam>/<label>/snapshot` JPEGs would come with it):
+  `available`, `events`, `reviews`, `+/+`, `+/+/active`, `+/+/state`,
+  `+/status/+`. A broker refusing all of them = not authorized (fatal);
+  some only = ignored.
+- Cooldown key: (trigger, camera, label) and (zone trigger, camera, zone,
+  label); per camera for review alerts (docs updated: "per camera and
+  object type"). A dropped transition is never fired later.
+- Reviews have no score: `min_score` applies to events only.
+- WebSocket auth: before each attempt `GET /api/profile` (logs in or renews
+  the token, and tells a refused certificate/account from a down Frigate),
+  then the upgrade with the Bearer through the same undici dispatcher.
+- Tests: `test/helpers/testBroker.js` (mqtt-packet, dev dependency) and the
+  `/ws` endpoint of the fake Frigate (`ws`, dev dependency).
+
+Left for milestone 4 part 2: resync of the states on reconnection (retained
+MQTT states arrive by themselves; the WebSocket gets `camera_activity`),
+debounce of `status/<role>`, MQTT `publish` for the switches. Possible
+improvement: a WebSocket watchdog (Frigate sends nothing while idle, so a
+half-open connection is only noticed by TCP).
+
+Original plan:
+
+- [x] `mqttClient.js` (mqtt.js 5): reconnect, resubscribe on reconnect,
       `<prefix>/available` (`online` / `offline` / `stopped`; republished on
       every broker reconnection), typed topic parser with configurable
       prefix, retained messages handled (initial states). TLS through the
@@ -139,18 +172,18 @@ config). Note: fetch refuses the "bad ports" of the Fetch standard (1, 9,
       after `secureConnect`, so a `destroy()` after any `await` on I/O comes
       too late. `TrustStore.get()` is synchronous for that reason; only
       `set()` (trusted path) is async.
-- [ ] WebSocket fallback (`wss://<frigate>/ws` with undici `WebSocket`,
+- [x] WebSocket fallback (`wss://<frigate>/ws` with undici `WebSocket`,
       Bearer header, same dispatcher): messages are JSON `{ topic, payload }`
       **without** the prefix; send `{ "topic": "onConnect", "payload": "" }`
       after opening to receive `camera_activity` (initial state of every
       camera: `config.detect/record/snapshots`, `motion`, `objects`).
       Register message listeners **before** opening: the first frame can
       arrive in the same chunk as the upgrade response.
-- [ ] `eventEngine.js`: `reviews` + `events` → one business transition per
+- [x] `eventEngine.js`: `reviews` + `events` → one business transition per
       incident, cooldown per camera (`trigger_cooldown`), ignore
       `false_positive` and stationary objects, `min_score` threshold, a
       detection escalating to an alert counts once more as an alert.
-- [ ] Tests on replayed MQTT sequences: duplicates, false positives,
+- [x] Tests on replayed MQTT sequences: duplicates, false positives,
       cooldown, alert after detection, retained states, reconnect resync.
 
 Frigate facts checked in the sources (0.16.4 / 0.17.2 / 0.18.0):

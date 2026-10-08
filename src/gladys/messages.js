@@ -32,6 +32,11 @@ const UNREACHABLE = {
   ENOTFOUND: { en: 'the host name is unknown', fr: "le nom d'hôte est inconnu" },
   EHOSTUNREACH: { en: 'the host is unreachable', fr: "l'hôte est injoignable" },
   ECONNRESET: { en: 'the connection was reset', fr: 'la connexion a été coupée' },
+  CLOSED: { en: 'the connection was closed', fr: 'la connexion a été fermée' },
+  WEBSOCKET_REFUSED: {
+    en: 'the WebSocket was refused (a proxy without WebSocket support in front of Frigate?)',
+    fr: 'le WebSocket a été refusé (un proxy sans prise en charge du WebSocket devant Frigate ?)',
+  },
 };
 
 /**
@@ -170,5 +175,60 @@ export function describeAuth(mode, username) {
         en: 'this port requires no authentication',
         fr: "ce port ne demande pas d'authentification",
       };
+  }
+}
+
+/**
+ * The real-time feed, for the connection status.
+ * @param {{ mode: 'mqtt' | 'websocket', endpoint: string, status: { state: string, error: Error | null } }} feed
+ * @param {boolean | null} frigateOnline last `available` of Frigate (null = unknown)
+ * @returns {{ en: string, fr: string }}
+ */
+export function describeFeed(feed, frigateOnline) {
+  const mqtt = feed.mode === 'mqtt';
+  const what = mqtt
+    ? { en: `the MQTT broker ${feed.endpoint}`, fr: `le broker MQTT ${feed.endpoint}` }
+    : { en: 'the Frigate WebSocket', fr: 'le WebSocket de Frigate' };
+  const { state, error } = feed.status;
+  if (state === 'connected') {
+    const offline = frigateOnline === false;
+    return {
+      en: `Real-time feed: ${mqtt ? 'MQTT broker' : 'Frigate WebSocket'} connected${offline ? ', but Frigate announces it is offline (restarting?)' : ''}.`,
+      fr: `Flux temps réel : ${mqtt ? 'broker MQTT' : 'WebSocket de Frigate'} connecté${offline ? ", mais Frigate s'annonce hors ligne (redémarrage ?)" : ''}.`,
+    };
+  }
+  if (state === 'connecting' && !error) {
+    return {
+      en: `Real-time feed: connecting to ${what.en}…`,
+      fr: `Flux temps réel : connexion à ${what.fr}…`,
+    };
+  }
+  // Same wording as the broker check of "Test the connection".
+  const reason = describeError(error, {
+    en: mqtt ? `MQTT broker ${feed.endpoint}` : 'Frigate',
+    fr: mqtt ? `Broker MQTT ${feed.endpoint}` : 'Frigate',
+  });
+  return state === 'failed'
+    ? { en: `Real-time feed stopped. ${reason.en}`, fr: `Flux temps réel arrêté. ${reason.fr}` }
+    : {
+        en: `Real-time feed interrupted, retrying. ${reason.en}`,
+        fr: `Flux temps réel interrompu, nouvel essai en cours. ${reason.fr}`,
+      };
+}
+
+/** One log line per transition of src/frigate/eventEngine.js (English, logs only). */
+export function describeTransition(transition) {
+  const subLabel = transition.subLabel ? ` (${transition.subLabel})` : '';
+  switch (transition.kind) {
+    case 'object_detected':
+      return `${transition.camera}: ${transition.label}${subLabel} detected, ${transition.score} %`;
+    case 'object_entered_zone':
+      return `${transition.camera}: ${transition.label}${subLabel} entered ${transition.zone}, ${transition.score} %`;
+    case 'review_alert': {
+      const zone = transition.zone ? ` in ${transition.zone}` : '';
+      return `${transition.camera}: review alert, ${transition.objects.join(', ') || 'no object'}${zone}`;
+    }
+    default:
+      return `${transition.camera}: ${transition.kind}`;
   }
 }

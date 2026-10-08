@@ -1,9 +1,10 @@
 # Frigate
 
 > **Statut : en développement.** La connexion à Frigate, les trois boutons
-> de l'onglet Configuration et les caméras (avec leur image) fonctionnent ;
-> les capteurs, les interrupteurs et les déclencheurs de scène arrivent dans
-> les prochaines versions.
+> de l'onglet Configuration, les caméras (avec leur image) et le flux temps
+> réel fonctionnent (les détections sont écrites dans les logs pour
+> l'instant) ; les capteurs, les interrupteurs et les déclencheurs de scène
+> arrivent dans les prochaines versions.
 
 Intégrez les caméras de votre [Frigate NVR](https://frigate.video) dans Gladys
 Assistant : images, mouvement, objets détectés, alertes de revue,
@@ -84,12 +85,29 @@ Les commandes des caméras (les interrupteurs) demandent alors un compte
 Frigate **admin** : depuis Frigate 0.17, le WebSocket les refuse aux autres
 rôles.
 
+Le statut de connexion indique l'état du flux (« Flux temps réel : broker
+MQTT connecté », ou pourquoi pas). Une panne réseau est réessayée toute
+seule ; un certificat ou un compte refusé arrête le flux jusqu'à ce que vous
+corrigiez le problème et cliquiez sur **Tester la connexion** (ou
+enregistriez la configuration). Quand Frigate s'annonce hors ligne
+(redémarrage), le statut le signale, et sa configuration est relue à son
+retour.
+
+Les détections passent déjà par les règles des futurs déclencheurs de scène
+et sont écrites dans les logs de l'intégration (**Voir les logs**), une ligne
+par incident : `front: person detected, 87 %`, `front: person entered porch,
+87 %`, `front: review alert, person, car in porch`.
+
 ## Options
 
-- **Confiance minimale** (70 % par défaut) : les déclencheurs de scène ne se
-  déclenchent qu'au-dessus.
+- **Confiance minimale** (70 % par défaut) : les déclencheurs d'objets ne se
+  déclenchent qu'au-dessus (les alertes de revue n'ont pas de score : les
+  seuils de Frigate s'appliquent).
 - **Cooldown des déclencheurs** (30 s par défaut) : au plus un déclenchement
-  par caméra et par période, pour qu'un incident n'inonde pas vos scènes.
+  par caméra et type d'objet (et par zone pour les déclencheurs de zone ; par
+  caméra pour les alertes de revue) et par période, pour qu'un incident
+  n'inonde pas vos scènes. Les faux positifs et les objets immobiles (une
+  voiture garée) ne déclenchent jamais.
 - **Capteurs d'occupation par zone** (désactivés par défaut) : un capteur de
   présence par zone et par objet suivi.
 
