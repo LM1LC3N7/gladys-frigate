@@ -8,3 +8,5 @@ data
 *.log
 .DS_Store
 README.md
+# Test-only TLS material (with a private key) never enters the build context.
+test

@@ -34,6 +34,14 @@ test('normalizeConfig trims values and clamps numbers', () => {
   assert.equal(config.mqtt_topic_prefix, 'frigate');
 });
 
+test('a blank number keeps the default instead of becoming 0', () => {
+  const config = normalizeConfig({ min_score: '  ', mqtt_port: '', trigger_cooldown: null });
+  assert.equal(config.min_score, DEFAULT_CONFIG.min_score);
+  assert.equal(config.mqtt_port, DEFAULT_CONFIG.mqtt_port);
+  assert.equal(config.trigger_cooldown, DEFAULT_CONFIG.trigger_cooldown);
+  assert.equal(normalizeConfig({ min_score: 0 }).min_score, 0, 'an explicit 0 is kept');
+});
+
 test('booleans only accept a strict true', () => {
   const config = normalizeConfig({ mqtt_tls: 'true', zone_sensors: 1 });
   assert.equal(config.mqtt_tls, false);
@@ -114,6 +122,16 @@ test('the expert fingerprint and CA are mutually exclusive', () => {
 test('MQTT is optional: without a host, the WebSocket feed is used', () => {
   assert.equal(usesMqtt(normalizeConfig(BASE)), false);
   assert.equal(usesMqtt(normalizeConfig({ ...BASE, mqtt_host: 'broker' })), true);
+});
+
+test('the MQTT host is a bare host name or IP address', () => {
+  const check = (mqtt_host) => validateConfig(normalizeConfig({ ...BASE, mqtt_host }));
+  for (const host of ['mqtt://broker', 'broker:1883', 'broker/frigate', 'my broker']) {
+    assert.match(check(host)?.en ?? '', /host name or an IP address only/, host);
+  }
+  for (const host of ['broker', 'broker.lan', '192.168.1.10', 'fe80::1']) {
+    assert.equal(check(host), null, host);
+  }
 });
 
 test('the MQTT topic prefix refuses wildcards', () => {

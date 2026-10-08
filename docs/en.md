@@ -29,7 +29,10 @@ Frigate's port 8971 serves a self-signed certificate by default. You do not
 have to do anything:
 
 - a certificate **signed by an authority** (Let's Encrypt, your company CA
-  installed in the system…) is verified normally, and renewals keep working;
+  installed in the system…) is verified normally, and renewals keep working,
+  as long as the Frigate URL uses a name the certificate covers (reached by
+  its IP address instead, it is handled like a self-signed one, and each
+  renewal asks you to trust it again);
 - a **self-signed** certificate is **trusted on the first connection**, then
   **pinned**: if it changes later (Frigate reinstalled, certificate
   regenerated… or someone impersonating Frigate), the connection is refused
@@ -71,7 +74,9 @@ topic read frigate/#
 topic write frigate/+/+/set
 ```
 
-Leave the broker host empty to use the Frigate WebSocket instead.
+Leave the broker host empty to use the Frigate WebSocket instead. Camera
+commands (the switches) then need an **admin** Frigate account: since Frigate
+0.17, the WebSocket refuses them from other roles.
 
 ## Options
 

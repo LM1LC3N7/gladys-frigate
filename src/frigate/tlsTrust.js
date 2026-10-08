@@ -20,7 +20,7 @@
 // depend on the Gladys SDK (layering rule).
 // -----------------------------------------------------------------------------
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 export const TRUST_REASONS = Object.freeze({
@@ -79,18 +79,39 @@ export function decideTrust(peer, policy = {}) {
     : { trusted: false, reason: TRUST_REASONS.CERTIFICATE_CHANGED };
 }
 
-/** Key of a TLS endpoint in the trust store ("host:port", host lowercased). */
+/**
+ * Key of a TLS endpoint in the trust store: "host:port", host lowercased,
+ * IPv6 in brackets whether or not the caller passed them (URL.hostname keeps
+ * them, tls.connect does not).
+ * @param {string} host
+ * @param {number | string} port the effective port: a URL without an explicit
+ *   port has `url.port === ''`, pass 443 / 8883 instead
+ */
 export function endpointKey(host, port) {
-  return `${String(host).toLowerCase()}:${Number(port)}`;
+  const number = Number(port);
+  if (String(port).trim() === '' || !Number.isInteger(number) || number < 1 || number > 65535) {
+    throw new TypeError(`Invalid TLS endpoint port: "${port}"`);
+  }
+  const name = String(host)
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/, '$1');
+  return name.includes(':') ? `[${name}]:${number}` : `${name}:${number}`;
 }
 
 /**
  * Persistent store of first-use pins, as a small JSON file in the writable
  * /data volume: `{ "<host>:<port>": { fingerprint, pinned_at } }`.
- * Writes are atomic (temporary file + rename). When the file cannot be
- * written (no /data during development), pins stay in memory.
+ * Writes are atomic (temporary file + rename) and queued: two saves in flight
+ * would share the temporary file and could leave a truncated store, losing
+ * every pin at the next start. When the file cannot be written (no /data
+ * during development), pins stay in memory.
+ *
+ * `load()` must be awaited before any other call: a store read before its
+ * pins are loaded would treat a pinned endpoint as a first use.
  */
 export class TrustStore {
+  #writes = Promise.resolve();
+
   /**
    * @param {object} options
    * @param {string} options.filePath e.g. /data/tls-trust.json
@@ -123,23 +144,31 @@ export class TrustStore {
     return this;
   }
 
-  /** @returns {string | undefined} the pinned fingerprint of an endpoint */
+  /**
+   * Synchronous on purpose: the TLS connectors decide inside 'secureConnect',
+   * before the client flushes what it already wrote (MQTT credentials).
+   * @returns {string | undefined} the pinned fingerprint of an endpoint
+   */
   get(key) {
+    this.#assertLoaded();
     return this.pins.get(key)?.fingerprint;
   }
 
   /** @returns {Array<{ endpoint: string, fingerprint: string, pinned_at: string }>} */
   list() {
+    this.#assertLoaded();
     return [...this.pins].map(([endpoint, entry]) => ({ endpoint, ...entry }));
   }
 
   async set(key, fingerprint) {
+    this.#assertLoaded();
     this.pins.set(key, { fingerprint, pinned_at: this.now().toISOString() });
     await this.#save();
   }
 
   /** Forget one endpoint, or every endpoint when no key is given. */
   async reset(key) {
+    this.#assertLoaded();
     if (key === undefined) {
       this.pins.clear();
     } else {
@@ -148,7 +177,21 @@ export class TrustStore {
     await this.#save();
   }
 
-  async #save() {
+  #assertLoaded() {
+    if (!this.loaded) {
+      throw new Error('TrustStore: await load() before reading or writing pins');
+    }
+  }
+
+  /** Queue a write of the pins as they are when the write starts. */
+  #save() {
+    const write = this.#writes.then(() => this.#write());
+    // A rejected write (a throwing logger) must not stop the next ones.
+    this.#writes = write.catch(() => {});
+    return write;
+  }
+
+  async #write() {
     const tmp = `${this.filePath}.tmp`;
     try {
       await mkdir(dirname(this.filePath), { recursive: true });
@@ -157,6 +200,7 @@ export class TrustStore {
       });
       await rename(tmp, this.filePath);
     } catch (err) {
+      await rm(tmp, { force: true }).catch(() => {});
       this.logger?.warn(`TLS trust store not saved, pins kept in memory only: ${err.message}`);
     }
   }

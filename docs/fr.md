@@ -31,7 +31,10 @@ n'avez rien à faire :
 
 - un certificat **signé par une autorité** (Let's Encrypt, l'autorité de votre
   entreprise installée sur le système…) est vérifié normalement, et ses
-  renouvellements continuent de fonctionner ;
+  renouvellements continuent de fonctionner, à condition que l'URL de Frigate
+  utilise un nom couvert par le certificat (joint par son adresse IP, il est
+  traité comme un certificat auto-signé, et chaque renouvellement vous
+  demande de l'approuver à nouveau) ;
 - un certificat **auto-signé** est **approuvé à la première connexion**, puis
   **épinglé** : s'il change ensuite (Frigate réinstallé, certificat régénéré…
   ou quelqu'un qui se fait passer pour Frigate), la connexion est refusée et
@@ -75,6 +78,9 @@ topic write frigate/+/+/set
 ```
 
 Laissez l'hôte du broker vide pour utiliser le WebSocket de Frigate à la place.
+Les commandes des caméras (les interrupteurs) demandent alors un compte
+Frigate **admin** : depuis Frigate 0.17, le WebSocket les refuse aux autres
+rôles.
 
 ## Options
 
