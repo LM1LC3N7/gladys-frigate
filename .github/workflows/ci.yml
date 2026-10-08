@@ -18,6 +18,10 @@ on:
       - main
   pull_request:
 
+# Read-only token: CI only checks out and builds, it never writes.
+permissions:
+  contents: read
+
 jobs:
   quality:
     runs-on: ubuntu-latest

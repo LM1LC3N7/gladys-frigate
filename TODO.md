@@ -19,6 +19,9 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
 
 - [x] **Milestone 1 — scaffold + v1 manifest + store validation** (`dbc219a`)
 - [x] TLS trust model changed to trust-on-first-use (policy + store, see below)
+      (`f8a3b4b`)
+- [x] Review of the above: pin store race, config and Docker fixes (see
+      CHANGELOG "Fixed"); facts below re-checked in the Frigate sources
 - [ ] **Milestone 2 — httpClient + capabilities** (next)
 - [ ] Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine
 - [ ] Milestone 4 — Gladys adapter: discovery, states, commands, images
@@ -37,7 +40,7 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
 | Score threshold        | Gladys trigger filters are equality / membership only (spec §4.2). → global `min_score` config (default 70 %) applied before firing; `score` exposed as a variable. No number filter in triggers (pinned by a test).                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `review_alert` filters | Event data is flat (no arrays). → filters on the **main object** (`label`, priority from the Frigate config order) and the **main zone** (`zone`, first entered); full lists in the `objects` / `zones` variables. One event per incident.                                                                                                                                                                                                                                                                                                                                                                               |
 | No MQTT                | MQTT recommended; when `mqtt_host` is empty, use the **Frigate WebSocket** (`/ws`, same messages as MQTT).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Frigate account        | Dedicated account, `viewer` (or custom) role is enough for HTTP: commands go through MQTT (`<prefix>/<cam>/<setting>/set`). Broker ACL: read `<prefix>/#`, write `<prefix>/+/+/set`. In WebSocket mode, commands need an admin Frigate role (Frigate blocks `set` topics from viewers on `/ws`).                                                                                                                                                                                                                                                                                                                         |
+| Frigate account        | Dedicated account, `viewer` (or custom) role is enough for HTTP: commands go through MQTT (`<prefix>/<cam>/<setting>/set`). Broker ACL: read `<prefix>/#`, write `<prefix>/+/+/set`. In WebSocket mode, commands need an admin Frigate role: since 0.17, `/ws` only accepts read-only topics (`onConnect`…) and `<cam>/ptz` from non-admin roles (0.16.4 checks no role there; the docs ask for admin anyway).                                                                                                                                                                                                           |
 | Scene keys             | Frozen in `src/gladys/keys.js` and pinned by `test/manifest.test.js`: triggers `review_alert`, `object_detected`, `object_entered_zone`; action `attach_event_snapshot`; manifest actions `test_connection`, `refresh_cameras`, `reset_certificate`. Never rename.                                                                                                                                                                                                                                                                                                                                                       |
 | Out of v1              | PTZ, faces and plates (beyond `sub_label`), classification, widgets, profiles, multi-instances, sub-containers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
@@ -56,13 +59,26 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
       (`CertificateChangedError`, `CertificateRejectedError`) so the Gladys
       side can show "certificate changed — press Trust the new certificate".
       Note: `authorized` alone does not check the host name.
+  - `await trustStore.load()` before the first connection (the store throws
+    otherwise); pass the **effective** port to `endpointKey()` (443 when the
+    URL has none: `url.port` is `''`, and `endpointKey` throws on it).
+  - No `servername` (SNI) when the host is an IP literal (`net.isIP`): RFC
+    6066 forbids it and Node prints a deprecation warning.
+  - `chainValid && !hostnameValid` (a Let's Encrypt certificate reached by
+    IP) falls back to first use, so every renewal looks like a changed
+    certificate: say it in the status ("use the host name the certificate
+    covers"). The docs already warn about it.
 - [ ] Auth: `POST /api/login` `{ user, password }` → JWT in `Set-Cookie`
       (cookie name configurable in Frigate, default `frigate_token`; take
       the first cookie). Send `Authorization: Bearer <jwt>` (supported by
       0.16.4, 0.17, 0.18). Decode `exp` from the JWT payload (no signature
       check) and log in again ~5 min before; re-login once on 401. Login
-      answering 404 = auth disabled (or internal port 5000) → no token.
-      Login is rate-limited by Frigate: never loop on 401.
+      is rate-limited by Frigate: never loop on 401.
+      **Probe before logging in:** only 0.18 answers `/api/login` with 404
+      when auth is disabled; 0.16.4 and 0.17.2 have no such check (401 for
+      an unknown user). So first `GET /api/config` without a token: 200 =
+      no auth (port 5000 or auth disabled: no login, warn in the status),
+      401 = log in. It also spares a rate-limited login attempt.
 - [ ] Timeout 10 s, body cap (container: 256 MB), retry with exponential
       backoff on network errors / 5xx for GET only; honor `Retry-After` on
       429; never retry 4xx. Errors sanitized: no password, token or cookie
@@ -99,7 +115,17 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
       every broker reconnection), typed topic parser with configurable
       prefix, retained messages handled (initial states). TLS through the
       same trust policy (`rejectUnauthorized: false` + verify on
-      `secureConnect`, as for HTTP).
+      `secureConnect`, as for HTTP). mqtt.js 5 writes the CONNECT packet
+      (with the broker password) as soon as its stream builder returns,
+      before the handshake, and with `rejectUnauthorized: false` it never
+      cuts the socket itself. So use `new MqttClient(streamBuilder, opts)`
+      with our own builder: `tls.connect(...)` (no `servername` for an IP),
+      register the trust check on `secureConnect` **before** returning the
+      socket, and **decide synchronously**: checked on Node 22, what was
+      written before the handshake reaches the peer one event-loop turn
+      after `secureConnect`, so a `destroy()` after any `await` on I/O comes
+      too late. `TrustStore.get()` is synchronous for that reason; only
+      `set()` (trusted path) is async.
 - [ ] WebSocket fallback (`wss://<frigate>/ws` with undici `WebSocket`,
       Bearer header, same dispatcher): messages are JSON `{ topic, payload }`
       **without** the prefix; send `{ "topic": "onConnect", "payload": "" }`
@@ -152,6 +178,11 @@ data: { detections, objects, sub_labels, zones, audio }`. Labels may
       debounced `status/<role>`; `setConnectionStatus` driven by
       `<prefix>/available` and the HTTP state, with the config warnings of
       `src/gladys/status.js` and the TLS errors ("certificate changed").
+- [ ] Status warning when the trust store cannot be saved (`/data` not
+      writable): pins then live in memory only and every restart is a new
+      first use. The image creates `/data` owned by `node` (a fresh Docker
+      volume was root-owned before); still check how the Gladys supervisor
+      mounts `/data` (a bind mount keeps the host directory's owner).
 - [ ] Manifest actions: `test_connection` (version, cameras, broker, TLS
       reason), `refresh_cameras` (re-read config, re-publish discovery),
       `reset_certificate` (`trustStore.reset()`, then reconnect; answer with
@@ -181,6 +212,17 @@ data: { detections, objects, sub_labels, zones, audio }`. Labels may
       `index.js`; CHANGELOG `0.1.0`; make the repo public, add the topic
       `gladys-assistant-integration`, run the Release workflow, make the
       ghcr.io package public, `npm run validate:manifest` must pass.
+
+## Open recommendations (maintainer's call, not done)
+
+- Release workflow: it bumps, tags and publishes without running lint and
+  tests; add a quality job before `prepare`.
+- CI: add `npm audit --omit=dev --audit-level=high`; pin the GitHub Actions
+  by commit SHA (with Dependabot for updates); arm64 is only built at
+  release time (the musl arm64 `sharp` binaries are in the lockfile).
+- `npm run validate:manifest` runs the latest, unpinned
+  `github:GladysAssistant/integration-store` through `npx --yes`: pin a
+  commit if supply chain matters more than following rule updates.
 
 ## References
 

@@ -38,9 +38,8 @@ function text(value) {
 
 function integer(value, fallback, min, max) {
   const n = Math.round(Number(value));
-  return Number.isFinite(n) && value !== '' && value !== null
-    ? Math.min(max, Math.max(min, n))
-    : fallback;
+  // Number('') and Number('  ') are 0: a blank field keeps the default.
+  return Number.isFinite(n) && text(value) !== '' ? Math.min(max, Math.max(min, n)) : fallback;
 }
 
 /**
@@ -170,6 +169,17 @@ export function validateConfig(config, raw = {}) {
     return {
       en: 'Fill in either the certificate fingerprint or the certificate authority, not both.',
       fr: "Renseignez soit l'empreinte du certificat, soit l'autorité de certification, pas les deux.",
+    };
+  }
+  // "mqtt://broker" or "broker:1883" would only fail later, at connection time.
+  // A single colon followed by digits is a port; IPv6 addresses have several.
+  if (
+    usesMqtt(config) &&
+    (/[\s/]/.test(config.mqtt_host) || /^[^:]+:\d+$/.test(config.mqtt_host))
+  ) {
+    return {
+      en: 'The MQTT broker host must be a host name or an IP address only, without mqtt://, port or path.',
+      fr: "L'hôte du broker MQTT doit être un nom d'hôte ou une adresse IP seuls, sans mqtt://, port ni chemin.",
     };
   }
   if (usesMqtt(config) && /[+#\s]/.test(config.mqtt_topic_prefix)) {

@@ -6,7 +6,9 @@ and the detailed plan of the next milestones.
 
 ## Rules
 
-- Node.js >= 20.18.1, JavaScript ESM with JSDoc, no TypeScript build.
+- Node.js >= 20.18.1 at runtime (the image ships 24), JavaScript ESM with
+  JSDoc, no TypeScript build. Dev tooling needs more: ESLint 10 wants Node
+  20.19+, `npm run validate:manifest` Node 24+.
 - Layering: `src/frigate/` never imports the Gladys SDK nor `src/gladys/`
   (ESLint enforces it); `src/gladys/` is a thin adapter; `index.js` only
   wires.

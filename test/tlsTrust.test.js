@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TRUST_REASONS, TrustStore, decideTrust, endpointKey } from '../src/frigate/tlsTrust.js';
@@ -81,6 +81,23 @@ test('a peer without fingerprint is never trusted on first use', () => {
 
 test('endpointKey normalizes the host', () => {
   assert.equal(endpointKey('Frigate.LAN', '8971'), 'frigate.lan:8971');
+  assert.equal(endpointKey('[FE80::1]', 8971), '[fe80::1]:8971', 'URL.hostname keeps brackets');
+  assert.equal(endpointKey('fe80::1', 8971), '[fe80::1]:8971', 'tls.connect drops them');
+});
+
+test('endpointKey refuses a missing or invalid port', () => {
+  // new URL('https://frigate').port is '': the caller must pass 443.
+  for (const port of ['', undefined, 0, 70000, 'abc', 1.5]) {
+    assert.throws(() => endpointKey('frigate', port), TypeError, String(port));
+  }
+});
+
+test('the trust store must be loaded before use', async () => {
+  const store = new TrustStore({ filePath: join(tmpdir(), 'never-written.json') });
+  // Reading before load() would treat a pinned endpoint as a first use.
+  assert.throws(() => store.get('frigate:8971'), /load\(\)/);
+  await assert.rejects(store.set('frigate:8971', FP_A), /load\(\)/);
+  await assert.rejects(store.reset(), /load\(\)/);
 });
 
 test('the trust store persists pins atomically and resets them', async (t) => {
@@ -111,6 +128,32 @@ test('the trust store persists pins atomically and resets them', async (t) => {
   assert.deepEqual(JSON.parse(await readFile(filePath, 'utf8')), {});
 });
 
+test('saves in flight are queued: the file always ends with the last state', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const filePath = join(dir, 'tls-trust.json');
+  const warnings = [];
+  const store = await new TrustStore({
+    filePath,
+    logger: { warn: (m) => warnings.push(m) },
+  }).load();
+
+  // HTTP and MQTT pinning at the same start, then "Trust the new certificate"
+  // followed at once by the reconnection: four writes overlap.
+  const writes = [store.set('frigate:8971', FP_A)];
+  await new Promise((resolve) => setImmediate(resolve));
+  writes.push(store.set('broker:8883', FP_B));
+  await new Promise((resolve) => setImmediate(resolve));
+  writes.push(store.reset('frigate:8971'));
+  writes.push(store.set('frigate:8971', FP_B));
+  await Promise.all(writes);
+
+  assert.deepEqual(warnings, [], 'no write collided with another one');
+  const saved = JSON.parse(await readFile(filePath, 'utf8'));
+  assert.deepEqual(Object.keys(saved).sort(), ['broker:8883', 'frigate:8971']);
+  assert.equal(saved['frigate:8971'].fingerprint, FP_B);
+});
+
 test('an unwritable or corrupted store degrades to memory, with a warning', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -118,8 +161,11 @@ test('an unwritable or corrupted store degrades to memory, with a warning', asyn
   const logger = { warn: (m) => warnings.push(m) };
 
   // A directory where the file should be: reading and writing both fail.
-  const store = await new TrustStore({ filePath: dir, logger }).load();
+  const filePath = join(dir, 'tls-trust.json');
+  await mkdir(filePath);
+  const store = await new TrustStore({ filePath, logger }).load();
   await store.set('frigate:8971', FP_A);
   assert.equal(store.get('frigate:8971'), FP_A, 'the pin is kept in memory');
-  assert.ok(warnings.length >= 2);
+  assert.equal(warnings.length, 2);
+  await assert.rejects(access(`${filePath}.tmp`), { code: 'ENOENT' }, 'no temporary file left');
 });

@@ -23,3 +23,24 @@ All notable changes to this project are documented here. The format follows
   presses "Trust the new certificate" (policy and store only — the TLS
   connectors come with the HTTP and MQTT clients).
 - Layering rule enforced by ESLint: `src/frigate/` never imports the Gladys SDK.
+
+### Fixed
+
+- TLS pin store: saves are queued (two overlapping saves could leave a
+  truncated `tls-trust.json` and lose every pin at the next start), the
+  temporary file is removed when a save fails, and using the store before
+  `load()` throws instead of treating a pinned endpoint as a first use.
+  `endpointKey()` refuses a missing port and accepts IPv6 with or without
+  brackets.
+- Configuration: a blank number keeps its default instead of becoming 0; an
+  MQTT host written as `mqtt://…`, `host:port` or with a path is refused with
+  a clear message.
+- Docker image: `/data` belongs to the runtime user (on a fresh Docker volume
+  it belonged to root, so pins could not be saved), dependencies are
+  installed strictly from the lockfile, and the npm cache is no longer
+  shipped (image 40 MB smaller).
+
+### Security
+
+- CI runs with a read-only `GITHUB_TOKEN`; the test-only TLS material stays
+  out of the Docker build context.
