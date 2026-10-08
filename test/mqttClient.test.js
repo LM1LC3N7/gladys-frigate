@@ -67,7 +67,10 @@ test('reconnects and subscribes again after the connection drops', async (t) => 
   await waitFor(() => feed.status.state === 'connected' && broker.clientCount === 1, {
     what: 'reconnection',
   });
-  assert.equal(broker.stats.subscribes.length, SUBSCRIPTIONS.length * 2);
+  // CONNACK comes before the SUBSCRIBE reaches the broker.
+  await waitFor(() => broker.stats.subscribes.length === SUBSCRIPTIONS.length * 2, {
+    what: 'the subscriptions renewed',
+  });
   broker.publish('frigate/front/motion', 'OFF');
   await waitFor(() => messages.length === 1);
 });
