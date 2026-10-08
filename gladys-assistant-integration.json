@@ -1,0 +1,391 @@
+{
+  "manifest_version": 1,
+  "type": "device",
+  "name": "Frigate",
+  "description": {
+    "en": "Frigate NVR cameras in Gladys: snapshots, motion, detected objects and scene triggers.",
+    "fr": "Caméras Frigate NVR dans Gladys : images, mouvement, objets détectés et déclencheurs."
+  },
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-integration-frigate:0.1.0",
+  "gladys_version": ">=5.1.0",
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-integration-frigate/main/cover.png",
+  "categories": ["security"],
+  "transports": ["local"],
+  "config_schema": [
+    {
+      "key": "intro",
+      "type": "section",
+      "label": {
+        "en": "Connect your Frigate server",
+        "fr": "Connectez votre serveur Frigate"
+      },
+      "description": {
+        "en": "Frigate 0.18 or later is required. Use the internal port (http://<ip>:5000, no login) or the authenticated port (https://<ip>:8971) with an admin user, needed to turn detection, recordings and snapshots on and off.",
+        "fr": "Frigate 0.18 ou plus est requis. Utilisez le port interne (http://<ip>:5000, sans identifiant) ou le port authentifié (https://<ip>:8971) avec un utilisateur admin, nécessaire pour activer ou couper la détection, les enregistrements et les snapshots."
+      },
+      "links": [
+        {
+          "url": "https://docs.frigate.video/configuration/authentication",
+          "label": {
+            "en": "Frigate authentication",
+            "fr": "Authentification Frigate"
+          }
+        }
+      ]
+    },
+    {
+      "key": "frigate_url",
+      "type": "string",
+      "label": {
+        "en": "Frigate URL",
+        "fr": "URL de Frigate"
+      },
+      "placeholder": {
+        "en": "http://192.168.1.10:5000",
+        "fr": "http://192.168.1.10:5000"
+      },
+      "required": true
+    },
+    {
+      "key": "username",
+      "type": "string",
+      "label": {
+        "en": "Username (port 8971)",
+        "fr": "Utilisateur (port 8971)"
+      },
+      "required": false
+    },
+    {
+      "key": "password",
+      "type": "secret",
+      "label": {
+        "en": "Password (port 8971)",
+        "fr": "Mot de passe (port 8971)"
+      },
+      "required": false
+    },
+    {
+      "key": "allow_self_signed",
+      "type": "boolean",
+      "label": {
+        "en": "Accept a self-signed certificate",
+        "fr": "Accepter un certificat auto-signé"
+      },
+      "description": {
+        "en": "Frigate's port 8971 uses a self-signed certificate by default. Only enable this on your local network.",
+        "fr": "Le port 8971 de Frigate utilise par défaut un certificat auto-signé. N'activez ceci que sur votre réseau local."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "snapshot_interval",
+      "type": "number",
+      "label": {
+        "en": "Snapshot interval (s)",
+        "fr": "Intervalle des images (s)"
+      },
+      "description": {
+        "en": "How often camera images are refreshed in Gladys, in seconds (0 to disable).",
+        "fr": "Fréquence de rafraîchissement des images dans Gladys, en secondes (0 pour désactiver)."
+      },
+      "required": false,
+      "default": 60,
+      "min": 0,
+      "max": 3600
+    },
+    {
+      "key": "snapshot_height",
+      "type": "number",
+      "label": {
+        "en": "Snapshot height (px)",
+        "fr": "Hauteur des images (px)"
+      },
+      "description": {
+        "en": "Height of the images sent to Gladys. Images are reduced automatically to stay under 150 KB.",
+        "fr": "Hauteur des images envoyées à Gladys. Elles sont réduites automatiquement pour rester sous 150 Ko."
+      },
+      "required": false,
+      "default": 480,
+      "min": 120,
+      "max": 1080
+    }
+  ],
+  "actions": [
+    {
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
+      "timeout_seconds": 30
+    }
+  ],
+  "scene_triggers": [
+    {
+      "key": "object_detected",
+      "label": {
+        "en": "Frigate: object detected",
+        "fr": "Frigate : objet détecté"
+      },
+      "description": {
+        "en": "A new object (person, car…) is tracked by Frigate.",
+        "fr": "Un nouvel objet (personne, voiture…) est suivi par Frigate."
+      },
+      "fields": [
+        {
+          "key": "camera",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Camera",
+            "fr": "Caméra"
+          }
+        },
+        {
+          "key": "label",
+          "type": "string",
+          "label": {
+            "en": "Object (e.g. person)",
+            "fr": "Objet (ex. person)"
+          }
+        }
+      ],
+      "variables": [
+        {
+          "key": "camera_name",
+          "type": "string",
+          "label": {
+            "en": "Camera",
+            "fr": "Caméra"
+          }
+        },
+        {
+          "key": "label",
+          "type": "string",
+          "label": {
+            "en": "Object",
+            "fr": "Objet"
+          }
+        },
+        {
+          "key": "sub_label",
+          "type": "string",
+          "label": {
+            "en": "Sub label (face, plate…)",
+            "fr": "Sous-label (visage, plaque…)"
+          }
+        },
+        {
+          "key": "score",
+          "type": "number",
+          "label": {
+            "en": "Confidence (%)",
+            "fr": "Confiance (%)"
+          }
+        },
+        {
+          "key": "zones",
+          "type": "string",
+          "label": {
+            "en": "Zones",
+            "fr": "Zones"
+          }
+        },
+        {
+          "key": "event_id",
+          "type": "string",
+          "label": {
+            "en": "Frigate event id",
+            "fr": "Identifiant de l'événement Frigate"
+          }
+        }
+      ]
+    },
+    {
+      "key": "zone_entered",
+      "label": {
+        "en": "Frigate: object enters a zone",
+        "fr": "Frigate : objet entre dans une zone"
+      },
+      "description": {
+        "en": "A tracked object enters one of the zones defined in Frigate.",
+        "fr": "Un objet suivi entre dans une des zones définies dans Frigate."
+      },
+      "fields": [
+        {
+          "key": "camera",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Camera",
+            "fr": "Caméra"
+          }
+        },
+        {
+          "key": "zone",
+          "type": "string",
+          "label": {
+            "en": "Zone",
+            "fr": "Zone"
+          }
+        },
+        {
+          "key": "label",
+          "type": "string",
+          "label": {
+            "en": "Object (e.g. person)",
+            "fr": "Objet (ex. person)"
+          }
+        }
+      ],
+      "variables": [
+        {
+          "key": "camera_name",
+          "type": "string",
+          "label": {
+            "en": "Camera",
+            "fr": "Caméra"
+          }
+        },
+        {
+          "key": "zone",
+          "type": "string",
+          "label": {
+            "en": "Zone",
+            "fr": "Zone"
+          }
+        },
+        {
+          "key": "label",
+          "type": "string",
+          "label": {
+            "en": "Object",
+            "fr": "Objet"
+          }
+        },
+        {
+          "key": "sub_label",
+          "type": "string",
+          "label": {
+            "en": "Sub label (face, plate…)",
+            "fr": "Sous-label (visage, plaque…)"
+          }
+        },
+        {
+          "key": "score",
+          "type": "number",
+          "label": {
+            "en": "Confidence (%)",
+            "fr": "Confiance (%)"
+          }
+        },
+        {
+          "key": "zones",
+          "type": "string",
+          "label": {
+            "en": "Current zones",
+            "fr": "Zones actuelles"
+          }
+        },
+        {
+          "key": "event_id",
+          "type": "string",
+          "label": {
+            "en": "Frigate event id",
+            "fr": "Identifiant de l'événement Frigate"
+          }
+        }
+      ]
+    },
+    {
+      "key": "review_started",
+      "label": {
+        "en": "Frigate: new alert or detection",
+        "fr": "Frigate : nouvelle alerte ou détection"
+      },
+      "description": {
+        "en": "Frigate opens a review item (alert or detection) on a camera.",
+        "fr": "Frigate ouvre un élément de revue (alerte ou détection) sur une caméra."
+      },
+      "fields": [
+        {
+          "key": "camera",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Camera",
+            "fr": "Caméra"
+          }
+        },
+        {
+          "key": "severity",
+          "type": "select",
+          "label": {
+            "en": "Severity",
+            "fr": "Sévérité"
+          },
+          "options": [
+            {
+              "value": "alert",
+              "label": {
+                "en": "Alert",
+                "fr": "Alerte"
+              }
+            },
+            {
+              "value": "detection",
+              "label": {
+                "en": "Detection",
+                "fr": "Détection"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "camera_name",
+          "type": "string",
+          "label": {
+            "en": "Camera",
+            "fr": "Caméra"
+          }
+        },
+        {
+          "key": "severity",
+          "type": "string",
+          "label": {
+            "en": "Severity",
+            "fr": "Sévérité"
+          }
+        },
+        {
+          "key": "objects",
+          "type": "string",
+          "label": {
+            "en": "Objects",
+            "fr": "Objets"
+          }
+        },
+        {
+          "key": "zones",
+          "type": "string",
+          "label": {
+            "en": "Zones",
+            "fr": "Zones"
+          }
+        },
+        {
+          "key": "review_id",
+          "type": "string",
+          "label": {
+            "en": "Frigate review id",
+            "fr": "Identifiant de la revue Frigate"
+          }
+        }
+      ]
+    }
+  ]
+}
