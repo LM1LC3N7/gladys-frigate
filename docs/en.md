@@ -141,7 +141,13 @@ positives and objects standing still never fire.
 | Frigate: object detected      | Frigate starts tracking an object (person, car…)                                              | camera, object, zone           |
 | Frigate: object enters a zone | A tracked object enters a zone defined in Frigate                                             | camera, zone, object           |
 
-Object and zone are the names used in Frigate (`person`, `car`, `porch`…).
+Object and zone are the names used in Frigate, in lowercase (`person`,
+`car`, `dog`, `cat`, `bicycle`… for objects, those of `objects.track`;
+`porch`… for zones); an empty field accepts any value. The objects a camera
+tracks are also its presence sensors (Person, Car…). "Object detected" only
+fires on an object confirmed by Frigate's detection, above the minimum
+confidence: plain motion never fires it (motion is the camera's "Motion"
+sensor).
 A review is filtered on its **main** object (the first of the camera's
 tracked objects, in the order of the Frigate configuration) and its first
 zone; all of them are in the `objects` and `zones` variables. Variables

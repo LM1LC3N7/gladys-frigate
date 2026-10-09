@@ -150,8 +150,14 @@ positifs et les objets immobiles ne déclenchent jamais.
 | Frigate : objet détecté             | Frigate commence à suivre un objet (personne, voiture…)                                                 | caméra, objet, zone           |
 | Frigate : objet entre dans une zone | Un objet suivi entre dans une zone définie dans Frigate                                                 | caméra, zone, objet           |
 
-L'objet et la zone sont les noms utilisés dans Frigate (`person`, `car`,
-`porch`…). Une revue est filtrée sur son objet **principal** (le premier des
+L'objet et la zone sont les noms utilisés dans Frigate, en minuscules
+(`person`, `car`, `dog`, `cat`, `bicycle`… pour les objets, ceux de
+`objects.track` ; `porch`… pour les zones) ; un champ vide accepte n'importe
+quelle valeur. Les objets suivis par une caméra sont aussi ses capteurs de
+présence (Person, Car…). « Objet détecté » ne se déclenche que sur un objet
+confirmé par la détection de Frigate, au-dessus de la confiance minimale :
+un simple mouvement ne le déclenche jamais (le mouvement est le capteur
+« Motion » de la caméra). Une revue est filtrée sur son objet **principal** (le premier des
 objets suivis par la caméra, dans l'ordre de la configuration Frigate) et sa
 première zone ; tous sont dans les variables `objects` et `zones`. Variables
 disponibles dans les actions suivantes : `camera`, `camera_name`, `label`,

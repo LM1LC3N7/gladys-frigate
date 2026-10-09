@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Scene editor: the object and zone fields of the triggers explain what to
+  type (Frigate names in lowercase, examples, empty for any), and "object
+  detected" says it never fires on plain motion.
+
 ### Fixed
 
 - Scene action "attach the event snapshot" followed by "Send a camera
