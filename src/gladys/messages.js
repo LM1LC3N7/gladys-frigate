@@ -226,7 +226,7 @@ export function describeTransition(transition) {
       return `${transition.camera}: ${transition.label}${subLabel} entered ${transition.zone}, ${transition.score} %`;
     case 'review_alert': {
       const zone = transition.zone ? ` in ${transition.zone}` : '';
-      return `${transition.camera}: review alert, ${transition.objects.join(', ') || 'no object'}${zone}`;
+      return `${transition.camera}: review ${transition.severity}, ${transition.objects.join(', ') || 'no object'}${zone}`;
     }
     default:
       return `${transition.camera}: ${transition.kind}`;

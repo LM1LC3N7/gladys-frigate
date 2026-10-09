@@ -14,7 +14,7 @@
 // rate limit of 12 images per minute and per camera.
 // -----------------------------------------------------------------------------
 
-import { FrigateError } from '../frigate/errors.js';
+import { FrigateError, HttpStatusError } from '../frigate/errors.js';
 
 export const MAX_IMAGE_LENGTH = 150 * 1024;
 export const IMAGE_PREFIX = 'image/jpg;base64,';
@@ -33,8 +33,8 @@ export function toGladysImage(jpeg) {
 }
 
 export class ImageTooLargeError extends FrigateError {
-  constructor(camera) {
-    super(`The image of camera "${camera}" stays above 150 KB even at the smallest size`);
+  constructor(what) {
+    super(`The image of ${what} stays above 150 KB even at the smallest size`);
     this.name = 'ImageTooLargeError';
   }
 }
@@ -60,21 +60,28 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
   const inFlight = new Map(); // camera -> Promise<string>
   const pushWindows = new Map(); // device external id -> { count, resetAt }
 
-  async function fetchFitting(client, camera) {
-    let index = startStep.get(camera) ?? 0;
+  /**
+   * The first step `fetchStep` serves under the Gladys limit, starting from
+   * the one remembered for `memoKey` (null: from the best step).
+   */
+  async function fitted(fetchStep, memoKey, what) {
+    let index = (memoKey && startStep.get(memoKey)) ?? 0;
     for (; index < IMAGE_STEPS.length; index += 1) {
-      const image = toGladysImage(await client.getLatestJpeg(camera, IMAGE_STEPS[index]));
+      const image = toGladysImage(await fetchStep(IMAGE_STEPS[index]));
       if (image.length <= MAX_IMAGE_LENGTH) {
         // Well under the limit: try one step better next time (the scene
         // may have become simpler, at night for instance).
         const roomy = image.length < MAX_IMAGE_LENGTH / 2;
-        startStep.set(camera, roomy ? Math.max(0, index - 1) : index);
+        if (memoKey) startStep.set(memoKey, roomy ? Math.max(0, index - 1) : index);
         return image;
       }
     }
-    startStep.delete(camera);
-    throw new ImageTooLargeError(camera);
+    if (memoKey) startStep.delete(memoKey);
+    throw new ImageTooLargeError(what);
   }
+
+  const fetchFitting = (client, camera) =>
+    fitted((step) => client.getLatestJpeg(camera, step), camera, `camera "${camera}"`);
 
   /**
    * A fresh image of a camera (`image/jpg;base64,...`, at most 150 KB).
@@ -122,6 +129,35 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
     capture,
 
     /**
+     * The snapshot of a Frigate event (bounding box optional), fitted like
+     * the camera images; its thumbnail when Frigate keeps no snapshot.
+     * @param {string} eventId
+     * @param {{ bbox?: boolean }} [options]
+     */
+    async eventSnapshot(eventId, { bbox = true } = {}) {
+      const client = getClient();
+      if (!client) {
+        throw new NotConnectedError();
+      }
+      try {
+        return await fitted(
+          (step) => client.getEventSnapshot(eventId, { ...step, bbox }),
+          null,
+          `event ${eventId}`,
+        );
+      } catch (err) {
+        if (!(err instanceof HttpStatusError && err.status === 404)) {
+          throw err;
+        }
+        const image = toGladysImage(await client.getEventThumbnail(eventId));
+        if (image.length > MAX_IMAGE_LENGTH) {
+          throw new ImageTooLargeError(`event ${eventId}`);
+        }
+        return image;
+      }
+    },
+
+    /**
      * Capture an image and publish it on the Gladys camera device.
      * @returns {Promise<boolean>} false when skipped by the rate limit
      */
@@ -131,6 +167,60 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
       }
       await publish(deviceExternalId, await capture(camera));
       return true;
+    },
+
+    /**
+     * Publish a given image (an event snapshot) on a camera device, within
+     * the same rate limit as the pushes.
+     * @returns {Promise<boolean>} false when skipped by the rate limit
+     */
+    async publishImage(deviceExternalId, image) {
+      if (!takePushSlot(deviceExternalId)) {
+        return false;
+      }
+      await publish(deviceExternalId, image);
+      return true;
+    },
+  };
+}
+
+/**
+ * The image side of the camera devices: push on poll / creation (never
+ * throws, a camera failing every minute logs once), capture on demand.
+ * @param {object} options
+ * @param {object} options.gladys SDK instance
+ * @param {ReturnType<typeof createCameraImages>} options.images
+ * @param {(gladys: object, device: object) => string | null} options.cameraOf
+ * @param {() => boolean} options.isConnected
+ * @param {{ warn: Function }} options.logger
+ */
+export function createDeviceImages({ gladys, images, cameraOf, isConnected, logger }) {
+  const errors = new Map(); // camera -> last error message
+
+  return {
+    async pushImage(device) {
+      const camera = cameraOf(gladys, device);
+      if (!camera || !isConnected()) {
+        return;
+      }
+      try {
+        await images.push(device.external_id, camera);
+        errors.delete(camera);
+      } catch (err) {
+        if (errors.get(camera) !== err.message) {
+          errors.set(camera, err.message);
+          logger.warn(`Could not update the image of camera ${camera}: ${err.message}`);
+        }
+      }
+    },
+
+    /** onGetImage: a fresh image, or a clear error. */
+    captureImage(device) {
+      const camera = cameraOf(gladys, device);
+      if (!camera) {
+        return Promise.reject(new Error(`${device?.external_id} is not a Frigate camera`));
+      }
+      return images.capture(camera);
     },
   };
 }

@@ -1,5 +1,6 @@
 /** Resolves once `condition()` is truthy; rejects after `timeoutMs`. */
-export async function waitFor(condition, { timeoutMs = 3000, what = 'condition' } = {}) {
+// Generous default: CI runners can be much slower than a workstation.
+export async function waitFor(condition, { timeoutMs = 10_000, what = 'condition' } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (!condition()) {
     if (Date.now() > deadline) {

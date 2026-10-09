@@ -34,6 +34,10 @@ import { describeAuth, describeError, describeFeed, describeTls } from './messag
 import { composeMessage, describeConfig } from './status.js';
 
 const RETRY_DELAY_MS = 60_000;
+const UNSAVED_PINS = {
+  en: 'The pinned certificates cannot be saved in /data: after a restart, the next connection trusts again the certificate it is served.',
+  fr: 'Les certificats épinglés ne peuvent pas être enregistrés dans /data : après un redémarrage, la connexion suivante approuve de nouveau le certificat présenté.',
+};
 const MAX_LISTED_CAMERAS = 10;
 
 const isTransient = (err) =>
@@ -96,6 +100,8 @@ export function createFeed({ config, client, trustStore }) {
  * @param {Function} [options.feedFactory] createFeed (tests)
  * @param {(transition: object) => void} [options.onTransition] eventEngine output
  * @param {(message: object) => void} [options.onMessage] every typed message
+ * @param {(status: { state: string, error: Error | null }) => void} [options.onFeedStatus]
+ * @param {(up: boolean) => void} [options.onFrigateStatus] HTTP read result
  */
 export function createFrigateSession({
   gladys,
@@ -108,6 +114,8 @@ export function createFrigateSession({
   feedFactory = createFeed,
   onTransition = () => {},
   onMessage = () => {},
+  onFeedStatus = () => {},
+  onFrigateStatus = () => {},
 }) {
   let config = null;
   let raw = {};
@@ -175,14 +183,17 @@ export function createFrigateSession({
     const created = feedFactory({ config, client, trustStore });
     feed = created;
     logger.info(`Real-time feed: ${created.mode} (${created.endpoint})`);
-    created.on('status', ({ state, error }) => {
+    created.on('status', (status) => {
       if (feed !== created) {
         return;
       }
+      const { state, error } = status;
       const log = state === 'connected' || state === 'connecting' ? 'info' : 'warn';
       logger[log](`Real-time feed ${state}${error ? `: ${error.message}` : ''}`);
+      onFeedStatus(status);
       publishConnected();
     });
+    onFeedStatus(created.status);
     created.on('message', (topic, payload) => {
       if (feed === created) {
         route(topic, payload);
@@ -194,6 +205,9 @@ export function createFrigateSession({
     const old = feed;
     feed = null;
     frigateOnline = null;
+    if (old) {
+      onFeedStatus({ state: null, error: null });
+    }
     await old?.close();
   }
 
@@ -226,6 +240,7 @@ export function createFrigateSession({
       },
       feed ? describeFeed(feed, frigateOnline) : null,
       ...configWarnings(config),
+      trustStore.saveError ? UNSAVED_PINS : null,
     ]);
   }
 
@@ -247,12 +262,14 @@ export function createFrigateSession({
         `Connected to Frigate ${capabilities.version.raw} (${capabilities.cameras.length} cameras)`,
       );
       startFeed(currentGeneration);
+      onFrigateStatus(true);
       await publishConnected();
     } catch (err) {
       if (currentGeneration !== generation) {
         return;
       }
       capabilities = null;
+      onFrigateStatus(false);
       logger.warn(`Frigate is not available: ${err.message}`);
       await setStatus(false, composeMessage([describeError(err), ...configWarnings(config)]));
       if (isTransient(err)) {
@@ -450,6 +467,11 @@ export function createFrigateSession({
         parts.push(await checkMqtt());
       }
       return sentences(parts);
+    },
+
+    /** The configuration applied last (null before the first one). */
+    get config() {
+      return config;
     },
 
     /** The real-time feed (null before Frigate was read). */

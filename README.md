@@ -5,13 +5,8 @@ into [Gladys Assistant](https://gladysassistant.com). Goal: more reliable and
 safer than the Home Assistant integration, built on the official Gladys
 integration SDK.
 
-> **Status: in development.** The integration connects to Frigate
-> (certificate trust, authentication, version and cameras), the three
-> Configuration buttons work, each camera can be created in Gladys with its
-> image (Discover tab), and the real-time feed (MQTT, or the Frigate
-> WebSocket) is followed and turned into deduplicated detections, shown in
-> the logs for now. The sensors, switches and scene triggers land in the next
-> milestones. See the [CHANGELOG](./CHANGELOG.md).
+> **Status: v1 feature-complete**, to be validated on real installations
+> before a stable release. See the [CHANGELOG](./CHANGELOG.md).
 
 | Compatibility    | Versions                                             |
 | ---------------- | ---------------------------------------------------- |
@@ -22,15 +17,16 @@ integration SDK.
 User documentation: [`docs/en.md`](./docs/en.md) / [`docs/fr.md`](./docs/fr.md)
 (re-hosted by the Gladys store, linked from the Configuration screen).
 
-Work in progress, decisions and next steps: [`TODO.md`](./TODO.md).
+Decisions taken and what is left: [`TODO.md`](./TODO.md).
 
 ## v1 scope
 
 - **One device per Frigate camera**, discovering only what the Frigate
-  configuration enables: image (on demand and alert snapshots, under 150 KB),
-  camera enabled, detect / recordings / snapshots switches, motion, one
-  presence sensor and one counter per tracked object, a total counter, the
-  review status, optional zone sensors.
+  configuration enables: image (every minute, on demand and on alerts, under
+  150 KB), camera enabled, detect / recordings / snapshots / audio switches
+  (confirmed by Frigate), motion, one presence sensor and one counter per
+  tracked object, a total counter, the review status, optional zone
+  sensors, a transport badge per camera.
 - **Scene triggers** (keys final, never renamed): `review_alert`,
   `object_detected`, `object_entered_zone`. **Scene action**:
   `attach_event_snapshot`.
@@ -66,13 +62,17 @@ src/gladys/       thin adapter to the Gladys SDK
   frigateSession.js connection lifecycle, real-time feed, status, the three buttons
   discovery.js      Frigate cameras -> Gladys devices (Discover tab)
   images.js         camera images under 150 KB (resized by Frigate), shared captures
+  deviceSync.js     states, commands (confirmed by Frigate), polls, badges
+  cameraStates.js   typed messages -> feature states
+  statePublisher.js dedupe, batches, rate limit of the states sent to Gladys
+  transports.js     per-camera badge (unreachable / degraded), debounced
+  sceneEvents.js    transitions -> scene triggers; attach_event_snapshot action
   messages.js       user-facing texts (en/fr) for errors, certificates, accounts
   keys.js           frozen manifest keys (scene triggers / actions)
   status.js         connection status message (errors and security warnings)
 ```
 
-Runtime dependencies: `@gladysassistant/integration-sdk`, `mqtt`, `sharp`
-(image resizing; unused so far, Frigate resizes the camera images itself) and `undici` (custom CA and certificate pinning for `fetch`
+Runtime dependencies: `@gladysassistant/integration-sdk`, `mqtt` and `undici` (custom CA and certificate pinning for `fetch`
 and the WebSocket fallback; v7, the last line supporting Node 20).
 
 ## Development
@@ -81,9 +81,15 @@ and the WebSocket fallback; v7, the last line supporting Node 20).
 npm install
 npm run format:check   # Prettier
 npm run lint           # ESLint (includes the layering rule)
-npm test               # node --test
+npm test               # node --test, including an end-to-end run of index.js
+npm audit --omit=dev   # the runtime dependencies shipped in the image
 npm run validate:manifest   # store admission rules (image must be published)
 ```
+
+`test/index.e2e.test.js` runs the real `index.js` in a child process against
+a fake Gladys (host API and WebSocket, `test/helpers/fakeGladys.js`), a fake
+Frigate and an MQTT broker stub: it catches a handler that is not registered
+or a hook that is not connected, which unit tests cannot see.
 
 Run against a Gladys instance in developer mode:
 
@@ -91,8 +97,12 @@ Run against a Gladys instance in developer mode:
 GLADYS_HOST_API_URL="http://localhost:1443" \
 GLADYS_INTEGRATION_TOKEN="<token>" \
 GLADYS_INTEGRATION_SELECTOR="frigate" \
+FRIGATE_DATA_DIR="./.data" \
 LOG_LEVEL=debug npm start
 ```
+
+`FRIGATE_DATA_DIR` (default `/data`, the container volume) is where the
+pinned certificates are saved.
 
 `test/fixtures/tls/` holds test-only certificates (a test CA and a
 `localhost` certificate); they are never used outside the test suite.
@@ -101,9 +111,10 @@ LOG_LEVEL=debug npm start
 
 1. Make the repository public and add the GitHub topic
    `gladys-assistant-integration`.
-2. Run **Actions → Release** (patch / minor / major): it bumps the version in
-   `package.json` and the manifest, tags `vX.Y.Z` and pushes the multi-arch
-   image (`linux/amd64`, `linux/arm64`) to `ghcr.io`.
+2. Run **Actions → Release** (patch / minor / major): it runs the CI checks,
+   bumps the version in `package.json` and the manifest, turns the
+   CHANGELOG's "Unreleased" section into the version, tags `vX.Y.Z` and
+   pushes the multi-arch image (`linux/amd64`, `linux/arm64`) to `ghcr.io`.
 3. Make the `ghcr.io` package public (first release only).
 
 ## License

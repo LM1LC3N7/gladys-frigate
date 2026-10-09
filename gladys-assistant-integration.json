@@ -621,8 +621,8 @@
         "fr": "Frigate : joindre l'image de l'événement"
       },
       "description": {
-        "en": "Publishes the snapshot of a Frigate event as the camera image, before \"Send the camera image\".",
-        "fr": "Publie l'image d'un événement Frigate comme image de la caméra, avant « Envoyer l'image de la caméra »."
+        "en": "Publishes the snapshot of a Frigate event as the camera image, before \"Send a camera image\".",
+        "fr": "Publie l'image d'un événement Frigate comme image de la caméra, avant « Envoyer une image de caméra »."
       },
       "timeout_seconds": 20,
       "fields": [

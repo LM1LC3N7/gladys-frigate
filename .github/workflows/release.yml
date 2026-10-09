@@ -4,10 +4,13 @@
 # In GitHub: Actions -> Release -> "Run workflow" -> pick patch / minor / major.
 #
 # What it does, in one run:
+#   0. runs the same checks as CI (format, lint, tests, audit): nothing is
+#      tagged or published from a red branch;
 #   1. computes the next semver from `package.json` (npm version rules);
 #   2. writes it into `package.json`, `package-lock.json` AND the manifest
 #      (`gladys-assistant-integration.json`: both `version` and the
-#      `docker_image` tag, so the indexer and the image stay in lockstep);
+#      `docker_image` tag, so the indexer and the image stay in lockstep),
+#      and turns the CHANGELOG's "Unreleased" section into this version;
 #   3. commits the bump and pushes the `vX.Y.Z` tag;
 #   4. calls build.yml to publish the multi-arch image (`:X.Y.Z` + `:latest`).
 #
@@ -31,7 +34,29 @@ on:
           - major
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    name: Lint & test
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+
   prepare:
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: write # commit the version bump and push the tag
@@ -39,12 +64,12 @@ jobs:
       version: ${{ steps.bump.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
 
@@ -77,6 +102,12 @@ jobs:
           prettier_version="$(node -p "require('./package.json').devDependencies.prettier.replace(/^[^0-9]*/, '')")"
           npx --yes "prettier@${prettier_version}" --write gladys-assistant-integration.json
 
+          # CHANGELOG: the "Unreleased" section becomes this version, under a
+          # new empty "Unreleased" one.
+          if grep -q '^## \[Unreleased\]' CHANGELOG.md; then
+            sed -i "0,/^## \[Unreleased\]/s//## [Unreleased]\n\n## [${new_version}] - $(date -u +%Y-%m-%d)/" CHANGELOG.md
+          fi
+
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
       # Note: if the branch you release from is protected against direct pushes,
@@ -91,7 +122,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add package.json package-lock.json gladys-assistant-integration.json
+          git add package.json package-lock.json gladys-assistant-integration.json CHANGELOG.md
           git commit -m "chore(release): ${VERSION}"
           git tag -a "v${VERSION}" -m "Release ${VERSION}"
 

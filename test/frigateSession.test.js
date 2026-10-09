@@ -81,6 +81,8 @@ function setup({
   onConnected,
   onTransition,
   onMessage,
+  onFeedStatus,
+  onFrigateStatus,
 } = {}) {
   const statuses = [];
   const resets = [];
@@ -107,8 +109,10 @@ function setup({
     feedFactory,
     onTransition,
     onMessage,
+    onFeedStatus,
+    onFrigateStatus,
   });
-  return { session, statuses, resets, clientFactory, feedFactory };
+  return { session, statuses, resets, clientFactory, feedFactory, trustStore };
 }
 
 const apply = (session, raw = RAW) => session.apply(normalizeConfig(raw), raw);
@@ -275,7 +279,7 @@ test('end to end: real client and trust store against an https Frigate', async (
   const frigate = await startFakeFrigate({ secure: true });
   t.after(() => frigate.close());
   const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-e2e-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5 }));
   const trustStore = await new TrustStore({ filePath: join(dir, 'tls-trust.json') }).load();
   const statuses = [];
   const session = createFrigateSession({
@@ -421,4 +425,30 @@ test('a new configuration, a certificate reset or close() stop the running feed'
   await session.close();
   assert.ok(old.closed);
   assert.equal(session.feed, null);
+});
+
+test('the device side hears about Frigate and the feed', async (t) => {
+  const frigate = [];
+  const feeds = [];
+  const { session, feedFactory } = setup({
+    outcomes: [undefined, new UnreachableError('ECONNREFUSED')],
+    onFrigateStatus: (up) => frigate.push(up),
+    onFeedStatus: (status) => feeds.push(status.state),
+  });
+  t.after(() => session.close());
+  await apply(session);
+  feedFactory.created[0].setStatus('connected');
+  await session.refreshCameras();
+  await session.close();
+  assert.deepEqual(frigate, [true, false]);
+  assert.deepEqual(feeds, ['connecting', 'connected', null]);
+});
+
+test('pins that cannot be saved are reported in the status', async (t) => {
+  const { session, statuses, trustStore } = setup();
+  t.after(() => session.close());
+  trustStore.saveError = new Error('EACCES');
+  await apply(session);
+  assert.match(statuses.at(-1).message.en, /cannot be saved in \/data/);
+  assert.match(statuses.at(-1).message.fr, /ne peuvent pas être enregistrés dans \/data/);
 });

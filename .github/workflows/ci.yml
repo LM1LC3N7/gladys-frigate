@@ -1,11 +1,16 @@
 # -----------------------------------------------------------------------------
 # Continuous integration: runs on every push and every pull request.
 #
-# Four gates:
+# Five gates:
 #   1. Prettier  -> consistent formatting (no style debates in reviews);
 #   2. ESLint    -> catch real mistakes (undefined vars, dead code, ...);
 #   3. Tests     -> `node --test`, the built-in runner (no extra dependency);
-#   4. Docker    -> the image still builds (amd64 only, nothing is pushed).
+#   4. Audit     -> no known high or critical vulnerability in the runtime
+#                   dependencies shipped in the image;
+#   5. Docker    -> the image still builds (amd64 only, nothing is pushed).
+#
+# Actions are pinned by commit SHA (a moved tag cannot change what runs);
+# Dependabot proposes the updates (.github/dependabot.yml).
 #
 # Runs on Node 24, the version the Docker image ships with (see the Dockerfile),
 # so the check exercises the exact runtime the integration runs on.
@@ -28,10 +33,10 @@ jobs:
     name: Lint & test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -48,18 +53,21 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Audit the runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
   docker:
     runs-on: ubuntu-latest
     name: Docker build
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build the image (not pushed)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64

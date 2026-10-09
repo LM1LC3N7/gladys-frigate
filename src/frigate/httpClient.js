@@ -321,6 +321,30 @@ export function createFrigateClient({
         maxBytes: MAX_IMAGE_BYTES,
       });
     },
+    /** GET /api/events/<id>: the tracked object (camera, label, has_snapshot…). */
+    getEvent(eventId) {
+      return this.getJson(`/api/events/${encodeURIComponent(eventId)}`);
+    },
+    /**
+     * Snapshot of an event, resized and re-encoded by Frigate.
+     * @param {string} eventId
+     * @param {{ height?: number, quality?: number, bbox?: boolean }} [options]
+     * @returns {Promise<Buffer>} JPEG bytes
+     */
+    getEventSnapshot(eventId, { height, quality, bbox = false } = {}) {
+      const query = new URLSearchParams({ bbox: bbox ? '1' : '0' });
+      if (height) query.set('height', String(Math.round(height)));
+      if (quality) query.set('quality', String(Math.round(quality)));
+      return request(`/api/events/${encodeURIComponent(eventId)}/snapshot.jpg?${query}`, {
+        maxBytes: MAX_IMAGE_BYTES,
+      });
+    },
+    /** Thumbnail of an event (small; exists even without snapshots). */
+    getEventThumbnail(eventId) {
+      return request(`/api/events/${encodeURIComponent(eventId)}/thumbnail.jpg`, {
+        maxBytes: MAX_IMAGE_BYTES,
+      });
+    },
     /**
      * Headers for the WebSocket handshake: makes one authenticated request
      * first (logs in, or renews a token close to its expiry), then hands

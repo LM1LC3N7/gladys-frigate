@@ -1,10 +1,5 @@
 # Frigate
 
-> **Status: in development.** The connection to Frigate, the three buttons
-> of the Configuration tab, the cameras (with their image) and the real-time
-> feed work (the detections are written to the logs for now); the sensors,
-> the switches and the scene triggers come in the next versions.
-
 Bring the cameras of your [Frigate NVR](https://frigate.video) into Gladys
 Assistant: snapshots, motion, detected objects, review alerts, camera
 switches, and scene triggers to react when a person, a car or an animal shows
@@ -17,6 +12,18 @@ up.
   and configuration and only exposes what your Frigate actually enables.
 - Recommended: the MQTT broker Frigate publishes to. Without a broker, the
   integration falls back to the Frigate WebSocket.
+
+## Quick start
+
+1. In Frigate, create a dedicated account: **Settings → Users → Add user**,
+   role `viewer` (enough when an MQTT broker is used, see below).
+2. In Gladys, install **Frigate** from the integration store, then open its
+   **Configuration** tab: Frigate URL `https://<frigate-ip>:8971`, the
+   account, and the MQTT broker Frigate publishes to. Save.
+3. The status at the top says "Connected to Frigate …, Real-time feed: MQTT
+   broker connected". **Test the connection** gives the details.
+4. In the **Discover** tab, press **Add to Gladys** on your cameras.
+5. Create scenes with the **Frigate** triggers (see Scenes).
 
 ## Frigate connection
 
@@ -87,35 +94,89 @@ refused certificate or account stops the feed until you fix it and press
 it is offline (restart), the status says so, and its configuration is read
 again when it comes back.
 
-Detections already go through the rules of the scene triggers to come, and
-are written to the integration logs (**View logs**), one line per incident:
+Each incident is also written to the integration logs (**View logs**):
 `front: person detected, 87 %`, `front: person entered porch, 87 %`,
 `front: review alert, person, car in porch`.
-
-## Options
-
-- **Minimum confidence** (default 70 %): object triggers only fire above it
-  (review alerts carry no score: Frigate's own thresholds apply).
-- **Trigger cooldown** (default 30 s): at most one trigger per camera and
-  object type (and zone, for zone triggers; per camera for review alerts)
-  and period, so an incident never floods your scenes. False positives and
-  objects that stay still (a parked car) never trigger.
-- **Zone occupancy sensors** (off by default): one presence sensor per zone
-  and tracked object.
 
 ## Cameras in Gladys
 
 Open the **Discover** tab of the integration: every Frigate camera is
 listed (press **Scan** to read Frigate again). Press **Add to Gladys** on the
-ones you want: each
-becomes a camera device for the dashboard camera widget, the chat ("show me
-the garage") and the "send camera image" scene action.
+ones you want. Each camera device carries what its Frigate configuration
+enables:
 
-- The image is refreshed **every minute**, and taken fresh when Gladys asks
-  for it (chat, scenes). Frigate resizes it to fit the 150 KB Gladys accepts.
-- Coming next: motion, detected objects and the camera switches. Gladys
-  will then show **Update** next to the cameras already created, in the
-  Discover tab: press it to add the new features to them.
+| Feature                                 | What it does                                                                                                               |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Image                                   | Refreshed every minute, taken fresh when Gladys asks (chat, scenes). Frigate resizes it to fit the 150 KB Gladys accepts.  |
+| Camera enabled                          | Turns the camera on or off **in Frigate** (no detection, no recording while off); Gladys then shows no image of it either. |
+| Object detection, Snapshots             | Frigate's switches.                                                                                                        |
+| Recordings, Audio detection             | Only when enabled in the Frigate configuration file: Frigate refuses to turn them on otherwise.                            |
+| Motion                                  | Motion seen by Frigate.                                                                                                    |
+| One sensor per tracked object (Person…) | Present / absent, and its count. Plus the total of objects.                                                                |
+| Review status                           | none, detection or alert.                                                                                                  |
+| Zone sensors                            | With the "Zone occupancy sensors" option: one presence sensor per zone and object.                                         |
+
+A switch is only shown as changed once Frigate confirms it. Without an MQTT
+broker, the Frigate WebSocket only accepts commands from an **admin** account
+(Frigate 0.17 and later): with another role, the command fails with that
+explanation.
+
+The badge of each camera says when it is not nominal: unreachable when
+Frigate does not answer, announces it is offline, or the camera stream has
+been lost for 30 seconds; degraded when its recording stream is interrupted
+or the real-time feed is down (the states may then be outdated).
+
+A camera added with an older version of the integration shows **Update** in
+the Discover tab: press it to add the new features.
+
+## Scenes
+
+Three triggers, fired **once per incident** (never once per frame), above
+the minimum confidence and outside the cooldown (see Options). False
+positives and objects standing still never fire.
+
+| Trigger                       | Fires when                                                                                    | Filters                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------ |
+| Frigate: new review           | Frigate opens a review item (alert or detection); once more when a detection becomes an alert | camera, severity, object, zone |
+| Frigate: object detected      | Frigate starts tracking an object (person, car…)                                              | camera, object, zone           |
+| Frigate: object enters a zone | A tracked object enters a zone defined in Frigate                                             | camera, zone, object           |
+
+Object and zone are the names used in Frigate (`person`, `car`, `porch`…).
+A review is filtered on its **main** object (the first of the camera's
+tracked objects, in the order of the Frigate configuration) and its first
+zone; all of them are in the `objects` and `zones` variables. Variables
+available in the following actions: `camera`, `camera_name`, `label`,
+`sub_label` (face or plate recognized by Frigate), `zone`, `zones`, `score`
+(%), `severity`, `objects`, `event_id`, `review_id`.
+
+On an alert, the integration pushes a fresh image of the camera **before**
+firing the trigger: the core action "Send a camera image" placed right
+after it sends the alert.
+
+**Action "Frigate: attach the event snapshot"**: publishes the snapshot
+Frigate kept for an event (with or without its bounding box) as the image of
+the camera (the event's camera by default). Use `{{triggerEvent.data.event_id}}`
+as the event id, then "Send a camera image". When Frigate keeps no snapshot
+for the camera, its thumbnail is used.
+
+Example — a photo on your phone when someone comes to the door:
+
+1. Trigger **Frigate: new review**, camera _Front door_, severity _Alert_,
+   object `person`.
+2. Action **Frigate: attach the event snapshot**, event id
+   `{{triggerEvent.data.event_id}}`.
+3. Action **Send a camera image** of _Front door_ to yourself.
+
+## Options
+
+- **Minimum confidence** (default 70 %): object triggers only fire above it
+  (reviews carry no score: Frigate's own thresholds apply).
+- **Trigger cooldown** (default 30 s): at most one trigger per camera and
+  object type (and zone, for zone triggers; per camera and severity for
+  reviews) and period, so an incident never floods your scenes. False positives and
+  objects that stay still (a parked car) never trigger.
+- **Zone occupancy sensors** (off by default): one presence sensor per zone
+  and tracked object.
 
 ## Live video
 
@@ -139,9 +200,35 @@ When Frigate cannot be reached, the integration tries again every minute. A
 refused certificate or refused credentials wait for you instead: retrying
 would only lock the account out (Frigate limits failed logins).
 
+## Security
+
+- The integration only talks to Frigate and to the broker, on your network;
+  it runs in an isolated container (read-only, no privileges, its only
+  writable folder holds the pinned certificates).
+- A dedicated Frigate account with the `viewer` role (or a role limited to
+  some cameras) cannot change Frigate's configuration. With MQTT, the broker
+  account above can only read Frigate's topics and send the camera commands.
+- Certificates: verified by an authority, or pinned on first use (see
+  above); the Frigate token and the broker password are only sent once the
+  certificate is trusted.
+- Passwords, tokens and cookies never appear in the logs or the status.
+- Port 5000 and MQTT without TLS work, with a warning in the status: use them
+  only on a network you trust.
+
 ## Troubleshooting
 
-The connection status at the top of the Configuration tab explains what is
-wrong (invalid URL, certificate, credentials). The integration logs are
-available from the supervision controls (**View logs**); they never contain
-passwords or tokens.
+The connection status at the top of the Configuration tab says what is wrong;
+**Test the connection** checks everything again. The integration logs
+(supervision controls, **View logs**) never contain passwords or tokens.
+
+| Symptom                                             | What to check                                                                                                                                     |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "The certificate of … changed"                      | Frigate reinstalled or certificate regenerated: press **Trust the new certificate**. Otherwise, someone may be impersonating Frigate.             |
+| "Frigate refused the username or the password"      | The account of the Configuration tab. After several failures Frigate blocks logins for a while: the integration does not retry by itself.         |
+| The Discover tab is empty                           | The status: Frigate must be reachable. Then **Scan**.                                                                                             |
+| No image on the dashboard                           | The camera is on in Frigate and in Gladys; wait one minute after adding it.                                                                       |
+| A switch fails ("did not confirm", "admin account") | Without a broker, Frigate 0.17+ only accepts commands from an admin account; with a broker, its ACL must allow `frigate/+/+/set`.                 |
+| "Real-time feed stopped"                            | The broker refused the account or the certificate: fix it, then **Test the connection**.                                                          |
+| Camera badge "unreachable"                          | Frigate is down or restarting, or the camera stream has been lost for 30 s (check the camera in Frigate).                                         |
+| A scene does not fire                               | The minimum confidence and the cooldown (Options); the object and zone names are Frigate's (`person`, not `Person`); the logs show each incident. |
+| A camera added before an update misses features     | The Discover tab shows **Update** on it.                                                                                                          |

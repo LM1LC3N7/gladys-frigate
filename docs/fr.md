@@ -1,11 +1,5 @@
 # Frigate
 
-> **Statut : en développement.** La connexion à Frigate, les trois boutons
-> de l'onglet Configuration, les caméras (avec leur image) et le flux temps
-> réel fonctionnent (les détections sont écrites dans les logs pour
-> l'instant) ; les capteurs, les interrupteurs et les déclencheurs de scène
-> arrivent dans les prochaines versions.
-
 Intégrez les caméras de votre [Frigate NVR](https://frigate.video) dans Gladys
 Assistant : images, mouvement, objets détectés, alertes de revue,
 interrupteurs des caméras, et déclencheurs de scènes pour réagir quand une
@@ -19,6 +13,20 @@ personne, une voiture ou un animal apparaît.
   réellement.
 - Recommandé : le broker MQTT sur lequel Frigate publie. Sans broker,
   l'intégration se rabat sur le WebSocket de Frigate.
+
+## Démarrage rapide
+
+1. Dans Frigate, créez un compte dédié : **Settings → Users → Add user**,
+   rôle `viewer` (suffisant avec un broker MQTT, voir plus bas).
+2. Dans Gladys, installez **Frigate** depuis le store des intégrations, puis
+   ouvrez son onglet **Configuration** : URL de Frigate
+   `https://<ip-frigate>:8971`, le compte, et le broker MQTT sur lequel
+   Frigate publie. Enregistrez.
+3. Le statut en haut indique « Connecté à Frigate …, Flux temps réel : broker
+   MQTT connecté ». **Tester la connexion** donne le détail.
+4. Dans l'onglet **Découverte**, cliquez sur **Ajouter à Gladys** pour vos
+   caméras.
+5. Créez des scènes avec les déclencheurs **Frigate** (voir Scènes).
 
 ## Connexion à Frigate
 
@@ -93,39 +101,93 @@ enregistriez la configuration). Quand Frigate s'annonce hors ligne
 (redémarrage), le statut le signale, et sa configuration est relue à son
 retour.
 
-Les détections passent déjà par les règles des futurs déclencheurs de scène
-et sont écrites dans les logs de l'intégration (**Voir les logs**), une ligne
-par incident : `front: person detected, 87 %`, `front: person entered porch,
+Chaque incident est aussi écrit dans les logs de l'intégration (**Voir les
+logs**) : `front: person detected, 87 %`, `front: person entered porch,
 87 %`, `front: review alert, person, car in porch`.
-
-## Options
-
-- **Confiance minimale** (70 % par défaut) : les déclencheurs d'objets ne se
-  déclenchent qu'au-dessus (les alertes de revue n'ont pas de score : les
-  seuils de Frigate s'appliquent).
-- **Cooldown des déclencheurs** (30 s par défaut) : au plus un déclenchement
-  par caméra et type d'objet (et par zone pour les déclencheurs de zone ; par
-  caméra pour les alertes de revue) et par période, pour qu'un incident
-  n'inonde pas vos scènes. Les faux positifs et les objets immobiles (une
-  voiture garée) ne déclenchent jamais.
-- **Capteurs d'occupation par zone** (désactivés par défaut) : un capteur de
-  présence par zone et par objet suivi.
 
 ## Les caméras dans Gladys
 
 Ouvrez l'onglet **Découverte** de l'intégration : chaque caméra de Frigate y
 est listée (cliquez sur **Scanner** pour relire Frigate). Cliquez sur
-**Ajouter à Gladys** pour celles que vous voulez : chacune devient un appareil caméra pour le widget caméra du
-tableau de bord, le chat (« montre-moi le garage ») et l'action de scène
-« envoyer l'image de la caméra ».
+**Ajouter à Gladys** pour celles que vous voulez. Chaque appareil caméra
+porte ce que sa configuration Frigate active :
 
-- L'image est rafraîchie **chaque minute**, et prise à l'instant quand
-  Gladys la demande (chat, scènes). Frigate la redimensionne pour tenir dans
-  les 150 Ko qu'accepte Gladys.
-- À venir : le mouvement, les objets détectés et les interrupteurs de la
-  caméra. Gladys affichera alors **Mettre à jour** à côté des caméras déjà
-  créées, dans l'onglet Découverte : cliquez dessus pour leur ajouter les
-  nouvelles fonctionnalités.
+| Fonctionnalité                       | Rôle                                                                                                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Image                                | Rafraîchie chaque minute, prise à l'instant quand Gladys la demande (chat, scènes). Frigate la réduit sous les 150 Ko acceptés par Gladys.   |
+| Caméra activée (Camera enabled)      | Allume ou éteint la caméra **dans Frigate** (ni détection ni enregistrement quand elle est éteinte) ; Gladys n'en montre alors plus l'image. |
+| Détection d'objets, instantanés      | Les interrupteurs de Frigate.                                                                                                                |
+| Enregistrements, détection audio     | Seulement s'ils sont activés dans le fichier de configuration de Frigate : sinon Frigate refuse de les allumer.                              |
+| Mouvement                            | Le mouvement vu par Frigate.                                                                                                                 |
+| Un capteur par objet suivi (Person…) | Présent / absent, et son nombre. Plus le total des objets.                                                                                   |
+| Statut de revue                      | none (aucune), detection ou alert.                                                                                                           |
+| Capteurs de zone                     | Avec l'option « Capteurs d'occupation par zone » : un capteur de présence par zone et par objet.                                             |
+
+Un interrupteur n'est affiché comme changé qu'une fois confirmé par Frigate.
+Sans broker MQTT, le WebSocket de Frigate n'accepte les commandes que d'un
+compte **admin** (Frigate 0.17 et plus) : avec un autre rôle, la commande
+échoue avec cette explication.
+
+Le badge de chaque caméra signale quand elle n'est pas nominale : injoignable
+quand Frigate ne répond pas, s'annonce hors ligne, ou que le flux de la
+caméra est perdu depuis 30 secondes ; dégradée quand son flux
+d'enregistrement est interrompu ou que le flux temps réel est coupé (les
+états peuvent alors être périmés).
+
+Une caméra ajoutée avec une version précédente de l'intégration affiche
+**Mettre à jour** dans l'onglet Découverte : cliquez dessus pour ajouter les
+nouvelles fonctionnalités.
+
+## Scènes
+
+Trois déclencheurs, **une fois par incident** (jamais une fois par image),
+au-dessus de la confiance minimale et hors cooldown (voir Options). Les faux
+positifs et les objets immobiles ne déclenchent jamais.
+
+| Déclencheur                         | Se déclenche quand                                                                                      | Filtres                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Frigate : nouvelle revue            | Frigate ouvre une revue (alerte ou détection) ; une fois de plus quand une détection devient une alerte | caméra, sévérité, objet, zone |
+| Frigate : objet détecté             | Frigate commence à suivre un objet (personne, voiture…)                                                 | caméra, objet, zone           |
+| Frigate : objet entre dans une zone | Un objet suivi entre dans une zone définie dans Frigate                                                 | caméra, zone, objet           |
+
+L'objet et la zone sont les noms utilisés dans Frigate (`person`, `car`,
+`porch`…). Une revue est filtrée sur son objet **principal** (le premier des
+objets suivis par la caméra, dans l'ordre de la configuration Frigate) et sa
+première zone ; tous sont dans les variables `objects` et `zones`. Variables
+disponibles dans les actions suivantes : `camera`, `camera_name`, `label`,
+`sub_label` (visage ou plaque reconnus par Frigate), `zone`, `zones`, `score`
+(%), `severity`, `objects`, `event_id`, `review_id`.
+
+Sur une alerte, l'intégration publie une image fraîche de la caméra **avant**
+de déclencher : l'action « Envoyer une image de caméra » placée juste après
+envoie bien l'alerte.
+
+**Action « Frigate : joindre l'image de l'événement »** : publie l'instantané
+que Frigate a gardé pour un événement (avec ou sans son cadre de détection)
+comme image de la caméra (celle de l'événement par défaut). Utilisez
+`{{triggerEvent.data.event_id}}` comme identifiant, puis « Envoyer une image de caméra ». Quand Frigate ne garde pas d'instantané pour la caméra, sa
+miniature est utilisée.
+
+Exemple — une photo sur votre téléphone quand quelqu'un vient à la porte :
+
+1. Déclencheur **Frigate : nouvelle revue**, caméra _Porte d'entrée_,
+   sévérité _Alerte_, objet `person`.
+2. Action **Frigate : joindre l'image de l'événement**, identifiant
+   `{{triggerEvent.data.event_id}}`.
+3. Action **Envoyer une image de caméra** _Porte d'entrée_ à vous-même.
+
+## Options
+
+- **Confiance minimale** (70 % par défaut) : les déclencheurs d'objets ne se
+  déclenchent qu'au-dessus (les revues n'ont pas de score : les seuils de
+  Frigate s'appliquent).
+- **Cooldown des déclencheurs** (30 s par défaut) : au plus un déclenchement
+  par caméra et type d'objet (et par zone pour les déclencheurs de zone ; par
+  caméra et sévérité pour les revues) et par période, pour qu'un incident
+  n'inonde pas vos scènes. Les faux positifs et les objets immobiles (une
+  voiture garée) ne déclenchent jamais.
+- **Capteurs d'occupation par zone** (désactivés par défaut) : un capteur de
+  présence par zone et par objet suivi.
 
 ## Vidéo en direct
 
@@ -152,9 +214,38 @@ certificat ou des identifiants refusés attendent en revanche votre action :
 réessayer ne ferait que bloquer le compte (Frigate limite les connexions
 échouées).
 
+## Sécurité
+
+- L'intégration ne parle qu'à Frigate et au broker, sur votre réseau ; elle
+  tourne dans un conteneur isolé (lecture seule, sans privilèges, son seul
+  dossier modifiable contient les certificats épinglés).
+- Un compte Frigate dédié de rôle `viewer` (ou un rôle limité à certaines
+  caméras) ne peut pas modifier la configuration de Frigate. Avec MQTT, le
+  compte du broker ci-dessus ne peut que lire les topics de Frigate et
+  envoyer les commandes des caméras.
+- Certificats : vérifiés par une autorité, ou épinglés à la première
+  connexion (voir plus haut) ; le jeton Frigate et le mot de passe du broker
+  ne partent qu'une fois le certificat approuvé.
+- Les mots de passe, jetons et cookies n'apparaissent jamais dans les logs ni
+  dans le statut.
+- Le port 5000 et MQTT sans TLS fonctionnent, avec un avertissement dans le
+  statut : réservez-les à un réseau de confiance.
+
 ## Dépannage
 
-Le statut de connexion en haut de l'onglet Configuration explique ce qui ne va
-pas (URL, certificat, identifiants invalides). Les logs de l'intégration sont
-accessibles depuis les contrôles de supervision (**Voir les logs**) ; ils ne
-contiennent jamais de mot de passe ni de jeton.
+Le statut de connexion en haut de l'onglet Configuration dit ce qui ne va
+pas ; **Tester la connexion** revérifie tout. Les logs de l'intégration
+(contrôles de supervision, **Voir les logs**) ne contiennent jamais de mot de
+passe ni de jeton.
+
+| Symptôme                                                | À vérifier                                                                                                                                                        |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| « Le certificat de … a changé »                         | Frigate réinstallé ou certificat régénéré : cliquez sur **Faire confiance au nouveau certificat**. Sinon, quelqu'un se fait peut-être passer pour Frigate.        |
+| « Frigate a refusé l'utilisateur ou le mot de passe »   | Le compte de l'onglet Configuration. Après plusieurs échecs, Frigate bloque les connexions un moment : l'intégration ne réessaie pas d'elle-même.                 |
+| L'onglet Découverte est vide                            | Le statut : Frigate doit être joignable. Puis **Scanner**.                                                                                                        |
+| Pas d'image sur le tableau de bord                      | La caméra est allumée dans Frigate et dans Gladys ; attendez une minute après l'avoir ajoutée.                                                                    |
+| Un interrupteur échoue (« did not confirm », « admin ») | Sans broker, Frigate 0.17+ n'accepte les commandes que d'un compte admin ; avec un broker, son ACL doit autoriser `frigate/+/+/set`.                              |
+| « Flux temps réel arrêté »                              | Le broker a refusé le compte ou le certificat : corrigez, puis **Tester la connexion**.                                                                           |
+| Badge de caméra « injoignable »                         | Frigate est arrêté ou redémarre, ou le flux de la caméra est perdu depuis 30 s (vérifiez la caméra dans Frigate).                                                 |
+| Une scène ne se déclenche pas                           | La confiance minimale et le cooldown (Options) ; les noms d'objet et de zone sont ceux de Frigate (`person`, pas `Personne`) ; les logs montrent chaque incident. |
+| Une caméra ajoutée avant une mise à jour n'a pas tout   | L'onglet Découverte affiche **Mettre à jour** à côté d'elle.                                                                                                      |

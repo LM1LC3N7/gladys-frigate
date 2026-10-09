@@ -12,7 +12,7 @@ import { waitFor } from './helpers/waitFor.js';
 
 async function trustStoreIn(t) {
   const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-ws-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5 }));
   return new TrustStore({ filePath: join(dir, 'tls-trust.json') }).load();
 }
 
