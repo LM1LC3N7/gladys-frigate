@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Scene action "attach the event snapshot" followed by "Send a camera
+  image" sent the current frame, without the bounding box: Gladys asks the
+  integration for a live image instead of reading the stored one. The
+  attached snapshot now answers that request for a minute (dashboard live
+  view included), and the action no longer fails over the image rate limit.
+- A finished event whose stored snapshot exceeds 150 KB (Frigate serves it
+  as is, whatever size is asked) falls back to its thumbnail instead of
+  failing after twelve identical requests.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added

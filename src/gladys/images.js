@@ -12,6 +12,11 @@
 // an image younger than 2 s is reused (a dashboard opened on several screens
 // does not multiply the requests to Frigate). Pushes stay under the Gladys
 // rate limit of 12 images per minute and per camera.
+//
+// An attached image (event snapshot of the scene action) answers onGetImage
+// for ATTACHED_MS: Gladys' "send a camera image" asks the integration for a
+// live capture rather than reading the stored image, which would otherwise
+// replace the snapshot by the current frame.
 // -----------------------------------------------------------------------------
 
 import { FrigateError, HttpStatusError } from '../frigate/errors.js';
@@ -20,6 +25,7 @@ export const MAX_IMAGE_LENGTH = 150 * 1024;
 export const IMAGE_PREFIX = 'image/jpg;base64,';
 const MAX_PUSHES_PER_MINUTE = 12;
 const FRESH_MS = 2_000;
+export const ATTACHED_MS = 60_000;
 
 /** Height/quality steps, from the best image to the smallest one. */
 export const IMAGE_STEPS = Object.freeze(
@@ -59,6 +65,7 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
   const recent = new Map(); // camera -> { at, image }
   const inFlight = new Map(); // camera -> Promise<string>
   const pushWindows = new Map(); // device external id -> { count, resetAt }
+  const attachedImages = new Map(); // device external id -> { image, until }
 
   /**
    * The first step `fetchStep` serves under the Gladys limit, starting from
@@ -139,14 +146,25 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
       if (!client) {
         throw new NotConnectedError();
       }
+      let previous = null;
       try {
         return await fitted(
-          (step) => client.getEventSnapshot(eventId, { ...step, bbox }),
+          async (step) => {
+            const jpeg = await client.getEventSnapshot(eventId, { ...step, bbox });
+            // A finished event: Frigate serves its stored file as is, whatever
+            // the size asked, so a smaller step cannot help.
+            if (jpeg.length === previous) {
+              throw new ImageTooLargeError(`event ${eventId}`);
+            }
+            previous = jpeg.length;
+            return jpeg;
+          },
           null,
           `event ${eventId}`,
         );
       } catch (err) {
-        if (!(err instanceof HttpStatusError && err.status === 404)) {
+        const noSnapshot = err instanceof HttpStatusError && err.status === 404;
+        if (!noSnapshot && !(err instanceof ImageTooLargeError)) {
           throw err;
         }
         const image = toGladysImage(await client.getEventThumbnail(eventId));
@@ -170,16 +188,29 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
     },
 
     /**
-     * Publish a given image (an event snapshot) on a camera device, within
-     * the same rate limit as the pushes.
-     * @returns {Promise<boolean>} false when skipped by the rate limit
+     * Attach an image (an event snapshot) to a camera device: it answers
+     * onGetImage for ATTACHED_MS, and is published within the same rate
+     * limit as the pushes.
+     * @returns {Promise<boolean>} false when the publication was skipped by
+     *   the rate limit (the image is still attached)
      */
-    async publishImage(deviceExternalId, image) {
+    async attach(deviceExternalId, image) {
+      attachedImages.set(deviceExternalId, { image, until: now() + ATTACHED_MS });
       if (!takePushSlot(deviceExternalId)) {
         return false;
       }
       await publish(deviceExternalId, image);
       return true;
+    },
+
+    /** The image attached to a camera device, while it holds. */
+    attached(deviceExternalId) {
+      const entry = attachedImages.get(deviceExternalId);
+      if (entry && now() < entry.until) {
+        return entry.image;
+      }
+      attachedImages.delete(deviceExternalId);
+      return null;
     },
   };
 }
@@ -214,13 +245,13 @@ export function createDeviceImages({ gladys, images, cameraOf, isConnected, logg
       }
     },
 
-    /** onGetImage: a fresh image, or a clear error. */
+    /** onGetImage: the attached event snapshot, else a fresh image, or a clear error. */
     captureImage(device) {
       const camera = cameraOf(gladys, device);
       if (!camera) {
         return Promise.reject(new Error(`${device?.external_id} is not a Frigate camera`));
       }
-      return images.capture(camera);
+      return Promise.resolve(images.attached(device.external_id) ?? images.capture(camera));
     },
   };
 }

@@ -165,8 +165,14 @@ envoie bien l'alerte.
 **Action « Frigate : joindre l'image de l'événement »** : publie l'instantané
 que Frigate a gardé pour un événement (avec ou sans son cadre de détection)
 comme image de la caméra (celle de l'événement par défaut). Utilisez
-`{{triggerEvent.data.event_id}}` comme identifiant, puis « Envoyer une image de caméra ». Quand Frigate ne garde pas d'instantané pour la caméra, sa
-miniature est utilisée.
+`{{triggerEvent.data.event_id}}` comme identifiant, puis « Envoyer une image
+de caméra ». Pendant une minute, c'est aussi l'image que Gladys reçoit quand
+il demande une image en direct de cette caméra (« Envoyer une image de
+caméra », la vue en direct du tableau de bord). Quand Frigate ne garde pas
+d'instantané pour la caméra, ou en garde un trop lourd pour Gladys, sa
+miniature est utilisée. Une fois l'événement terminé, Frigate sert
+l'instantané qu'il a enregistré : le cadre suit alors son propre réglage
+`snapshots.bounding_box`.
 
 Exemple — une photo sur votre téléphone quand quelqu'un vient à la porte :
 

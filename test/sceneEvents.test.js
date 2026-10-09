@@ -140,7 +140,7 @@ function action({ client, published = [], room = true } = {}) {
         calls.push([eventId, options]);
         return 'image/jpg;base64,AAAA';
       },
-      publishImage: async (device, image) => {
+      attach: async (device, image) => {
         published.push([device, image]);
         return room;
       },
@@ -182,9 +182,10 @@ test('attach_event_snapshot fails with a reason', async () => {
   );
   await assert.rejects(action({ client: unknown }).handler({}), /not a Frigate event id/);
   await assert.rejects(action({ client: null }).handler({ event_id: 'x' }), /not connected/);
-  const busy = action({ client: unknown, room: false });
-  await assert.rejects(
-    busy.handler({ event_id: 'x', camera: 'ext:frigate:camera:front' }),
-    /Too many images/,
-  );
+});
+
+test('attach_event_snapshot over the image rate limit still attaches the snapshot', async () => {
+  const busy = action({ client: {}, room: false });
+  await busy.handler({ event_id: 'x', camera: 'ext:frigate:camera:front' });
+  assert.equal(busy.published.length, 1);
 });
