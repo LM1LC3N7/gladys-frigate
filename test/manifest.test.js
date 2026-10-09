@@ -122,3 +122,12 @@ test('every manifest action has a handler in index.js (no "not implemented" butt
     );
   }
 });
+
+test('index.js answers the scan and the camera requests of Gladys', async () => {
+  // Without a handler, the SDK ignores a scan silently: the Discovery tab
+  // then spins for minutes and shows nothing (0.1.2).
+  const index = await readFile(new URL('../index.js', import.meta.url), 'utf8');
+  for (const handler of ['onScanRequest', 'onGetImage', 'onPoll', 'onDeviceCreated']) {
+    assert.match(index, new RegExp(`gladys\\.${handler}\\(`), `${handler} is registered`);
+  }
+});

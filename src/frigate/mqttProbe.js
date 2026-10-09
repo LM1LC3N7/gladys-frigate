@@ -4,37 +4,15 @@
 // Connects with the configured account, waits for the broker's CONNACK and
 // disconnects. Over TLS the socket comes from the trust-on-first-use
 // connector, built before mqtt.js gets it, so a refused certificate never
-// receives the CONNECT packet (and its password) — see ./tlsConnector.js.
-// The long-lived subscriber (milestone 3) reuses the same stream builder.
+// receives the CONNECT packet (and its password) — see ./mqttStream.js.
 //
 // No Gladys dependency (layering rule).
 // -----------------------------------------------------------------------------
 
-import net from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { MqttClient } from 'mqtt';
-import { FrigateError, MqttRefusedError, UnreachableError } from './errors.js';
-import { bareHost, createTrustedTlsSocket } from './tlsConnector.js';
-
-// MQTT 3.1.1 CONNACK return codes worth a precise message.
-const CONNACK_BAD_CREDENTIALS = 4;
-const CONNACK_NOT_AUTHORIZED = 5;
-
-function toProbeError(err) {
-  if (err instanceof FrigateError) {
-    return err;
-  }
-  if (err?.code === CONNACK_BAD_CREDENTIALS) {
-    return new MqttRefusedError('invalid_credentials');
-  }
-  if (err?.code === CONNACK_NOT_AUTHORIZED) {
-    return new MqttRefusedError('not_authorized');
-  }
-  if (typeof err?.code === 'number') {
-    return new MqttRefusedError('refused');
-  }
-  return new UnreachableError(err?.code ?? 'CLOSED');
-}
+import { UnreachableError } from './errors.js';
+import { mqttStreamBuilder, toMqttError } from './mqttStream.js';
 
 /**
  * @param {object} options
@@ -66,26 +44,20 @@ export function probeMqtt({
     let finished = false;
 
     const client = new MqttClient(
-      () => {
-        const socket = tls
-          ? createTrustedTlsSocket({
-              host,
-              port,
-              trustStore,
-              manualFingerprint,
-              ca,
-              onDecision: (decision) => {
-                tlsDecision = decision;
-              },
-            })
-          : net.connect({ host: bareHost(host), port });
-        // mqtt.js only re-emits a few socket error codes: keep ours (a
-        // CertificateError has none) to report why the stream closed.
-        socket.once('error', (err) => {
+      mqttStreamBuilder({
+        host,
+        port,
+        tls,
+        trustStore,
+        manualFingerprint,
+        ca,
+        onDecision: (decision) => {
+          tlsDecision = decision;
+        },
+        onSocketError: (err) => {
           socketError = err;
-        });
-        return socket;
-      },
+        },
+      }),
       {
         clientId: `gladys-frigate-check-${randomBytes(4).toString('hex')}`,
         username: username || undefined,
@@ -105,7 +77,7 @@ export function probeMqtt({
       clearTimeout(timer);
       client.end(true);
       if (err) {
-        reject(toProbeError(err));
+        reject(toMqttError(err));
       } else {
         resolve({ tlsDecision });
       }

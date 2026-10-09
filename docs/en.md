@@ -1,8 +1,9 @@
 # Frigate
 
-> **Status: in development.** The connection to Frigate and the three
-> buttons of the Configuration tab work; the camera devices, the real-time
-> feed and the scene triggers come in the next versions.
+> **Status: in development.** The connection to Frigate, the three buttons
+> of the Configuration tab, the cameras (with their image) and the real-time
+> feed work (the detections are written to the logs for now); the sensors,
+> the switches and the scene triggers come in the next versions.
 
 Bring the cameras of your [Frigate NVR](https://frigate.video) into Gladys
 Assistant: snapshots, motion, detected objects, review alerts, camera
@@ -79,13 +80,42 @@ Leave the broker host empty to use the Frigate WebSocket instead. Camera
 commands (the switches) then need an **admin** Frigate account: since Frigate
 0.17, the WebSocket refuses them from other roles.
 
+The connection status shows the state of the feed ("Real-time feed: MQTT
+broker connected", or why not). A network failure is retried on its own; a
+refused certificate or account stops the feed until you fix it and press
+**Test the connection** (or save the configuration). When Frigate announces
+it is offline (restart), the status says so, and its configuration is read
+again when it comes back.
+
+Detections already go through the rules of the scene triggers to come, and
+are written to the integration logs (**View logs**), one line per incident:
+`front: person detected, 87 %`, `front: person entered porch, 87 %`,
+`front: review alert, person, car in porch`.
+
 ## Options
 
-- **Minimum confidence** (default 70 %): scene triggers only fire above it.
+- **Minimum confidence** (default 70 %): object triggers only fire above it
+  (review alerts carry no score: Frigate's own thresholds apply).
 - **Trigger cooldown** (default 30 s): at most one trigger per camera and
-  period, so an incident never floods your scenes.
+  object type (and zone, for zone triggers; per camera for review alerts)
+  and period, so an incident never floods your scenes. False positives and
+  objects that stay still (a parked car) never trigger.
 - **Zone occupancy sensors** (off by default): one presence sensor per zone
   and tracked object.
+
+## Cameras in Gladys
+
+Open the **Discover** tab of the integration: every Frigate camera is
+listed (press **Scan** to read Frigate again). Press **Add to Gladys** on the
+ones you want: each
+becomes a camera device for the dashboard camera widget, the chat ("show me
+the garage") and the "send camera image" scene action.
+
+- The image is refreshed **every minute**, and taken fresh when Gladys asks
+  for it (chat, scenes). Frigate resizes it to fit the 150 KB Gladys accepts.
+- Coming next: motion, detected objects and the camera switches. Gladys
+  will then show **Update** next to the cameras already created, in the
+  Discover tab: press it to add the new features to them.
 
 ## Live video
 
@@ -99,7 +129,8 @@ camera** service of Gladys pointed at the Frigate go2rtc restream:
   certificate is trusted, the account used, and a connection to the MQTT
   broker (or a reminder that the Frigate WebSocket is used without one).
 - **Refresh the cameras**: reads the Frigate configuration again (for
-  instance after adding a camera).
+  instance after adding a camera) and updates the list of the Discover
+  tab.
 - **Trust the new certificate**: forgets the pinned certificates of Frigate
   and of the broker, reconnects, and shows the fingerprint now pinned.
   Compare it with the one of your Frigate (command above) when in doubt.

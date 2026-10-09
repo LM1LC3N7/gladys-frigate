@@ -255,3 +255,34 @@ test('timeouts, unreachable hosts and oversized answers are typed errors', async
     (err) => err instanceof UnreachableError && err.code === 'ECONNREFUSED',
   );
 });
+
+test('latest.jpg: the camera name is encoded, height and quality passed to Frigate', async (t) => {
+  const asked = [];
+  const frigate = await startFakeFrigate({
+    imageBytes: (query) => {
+      asked.push(query);
+      return 1234;
+    },
+  });
+  t.after(() => frigate.close());
+  const frigateClient = client(frigate);
+  t.after(() => frigateClient.close());
+  const jpeg = await frigateClient.getLatestJpeg('front', { height: 540, quality: 50 });
+  assert.equal(jpeg.length, 1234);
+  assert.deepEqual(asked, [{ camera: 'front', height: 540, quality: 50 }]);
+  await assert.rejects(frigateClient.getLatestJpeg('../config'), HttpStatusError);
+  assert.ok(frigate.calls.some((call) => call.url.startsWith('/api/..%2Fconfig/latest.jpg')));
+});
+
+test('auth: concurrent requests hitting a 401 share one login', async (t) => {
+  const frigate = await startFakeFrigate();
+  t.after(() => frigate.close());
+  const frigateClient = client(frigate);
+  t.after(() => frigateClient.close());
+  await Promise.all([
+    frigateClient.getConfig(),
+    frigateClient.getLatestJpeg('front'),
+    frigateClient.getLatestJpeg('garage'),
+  ]);
+  assert.equal(frigate.calls.filter((call) => call.url === '/api/login').length, 1);
+});

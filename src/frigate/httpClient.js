@@ -25,6 +25,7 @@ import { TRUST_REASONS } from './tlsTrust.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const TOKEN_RENEW_MARGIN_MS = 5 * 60 * 1000;
 const MAX_RETRY_AFTER_MS = 30_000;
 
@@ -190,7 +191,17 @@ export function createFrigateClient({
     }
   }
 
-  async function login() {
+  let loginInFlight = null;
+
+  /** Concurrent requests that hit a 401 share one login (rate-limited by Frigate). */
+  function login() {
+    loginInFlight ??= doLogin().finally(() => {
+      loginInFlight = null;
+    });
+    return loginInFlight;
+  }
+
+  async function doLogin() {
     const response = await once('/api/login', {
       method: 'POST',
       json: { user: username, password },
@@ -294,6 +305,46 @@ export function createFrigateClient({
     },
     getStats() {
       return this.getJson('/api/stats');
+    },
+    /**
+     * Latest frame of a camera, resized and re-encoded by Frigate.
+     * @param {string} camera Frigate camera name
+     * @param {{ height?: number, quality?: number }} [options]
+     * @returns {Promise<Buffer>} JPEG bytes
+     */
+    getLatestJpeg(camera, { height, quality } = {}) {
+      const query = new URLSearchParams();
+      if (height) query.set('height', String(Math.round(height)));
+      if (quality) query.set('quality', String(Math.round(quality)));
+      const search = query.size ? `?${query}` : '';
+      return request(`/api/${encodeURIComponent(camera)}/latest.jpg${search}`, {
+        maxBytes: MAX_IMAGE_BYTES,
+      });
+    },
+    /**
+     * Headers for the WebSocket handshake: makes one authenticated request
+     * first (logs in, or renews a token close to its expiry), then hands
+     * the current token over. A 404 (no /api/profile) is not an error.
+     */
+    async webSocketHeaders() {
+      try {
+        await request('/api/profile', { maxBytes: 64 * 1024 });
+      } catch (err) {
+        if (!(err instanceof HttpStatusError && err.status === 404)) {
+          throw err;
+        }
+      }
+      return auth.token ? { authorization: `Bearer ${auth.token}` } : {};
+    },
+    /** ws(s)://<frigate>/ws, on the same origin as the API. */
+    get webSocketUrl() {
+      const url = target('/ws');
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      return url.href;
+    },
+    /** The undici dispatcher: the WebSocket goes through the same TLS trust. */
+    get dispatcher() {
+      return dispatcher;
     },
     /** How the last request authenticated, see `auth.mode`. */
     get authMode() {

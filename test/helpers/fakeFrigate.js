@@ -4,6 +4,7 @@ import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import tls from 'node:tls';
+import { WebSocketServer } from 'ws';
 import { TEST_SERVER_CERT_PEM, TEST_SERVER_KEY_PEM } from './certificates.js';
 
 /** A JWT with the given `exp` (seconds); the signature is never checked. */
@@ -34,12 +35,15 @@ export const FRIGATE_CONFIG = {
  * @param {{ user: string, password: string } | null} [options.account] null = no auth
  * @param {string} [options.version]
  * @param {(req, res) => boolean} [options.override] return true when handled
+ * @param {(query: { camera: string, height: number, quality: number }) => number} [options.imageBytes]
+ *   size of the JPEG served by /api/<camera>/latest.jpg
  */
 export async function startFakeFrigate({
   secure = false,
   account = { user: 'gladys', password: 'pw' },
   version = '0.17.2-abcdef',
   override,
+  imageBytes = () => 20_000,
 } = {}) {
   const calls = [];
   let tokenExp = Math.floor(Date.now() / 1000) + 3600;
@@ -82,6 +86,27 @@ export async function startFakeFrigate({
       res.end(JSON.stringify(FRIGATE_CONFIG));
       return;
     }
+    if (req.url === '/api/profile') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ username: account?.user ?? 'anonymous', role: 'viewer' }));
+      return;
+    }
+    const latest = /^\/api\/([^/]+)\/latest\.jpg(?:\?(.*))?$/.exec(req.url);
+    const camera = latest && decodeURIComponent(latest[1]);
+    if (latest && FRIGATE_CONFIG.cameras[camera]) {
+      const query = new URLSearchParams(latest[2] ?? '');
+      const size = imageBytes({
+        camera,
+        height: Number(query.get('height')),
+        quality: Number(query.get('quality')),
+      });
+      const jpeg = Buffer.alloc(size, 0x41);
+      jpeg[0] = 0xff;
+      jpeg[1] = 0xd8;
+      res.setHeader('content-type', 'image/jpeg');
+      res.end(jpeg);
+      return;
+    }
     res.statusCode = 404;
     res.end();
   };
@@ -89,17 +114,66 @@ export async function startFakeFrigate({
   const server = secure
     ? https.createServer({ key: TEST_SERVER_KEY_PEM, cert: TEST_SERVER_CERT_PEM }, handler)
     : http.createServer(handler);
+
+  // /ws: the Frigate WebSocket, Bearer-authenticated like the API.
+  const wss = new WebSocketServer({ noServer: true });
+  const wsClients = new Set();
+  const wsReceived = [];
+  let wsRefused = false;
+  server.on('upgrade', (req, socket, head) => {
+    calls.push({ method: 'UPGRADE', url: req.url, authorization: req.headers.authorization });
+    const bearer = (req.headers.authorization ?? '').replace(/^Bearer /, '');
+    if (req.url !== '/ws' || wsRefused || (account && !tokens.has(bearer))) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wsClients.add(ws);
+      ws.on('close', () => wsClients.delete(ws));
+      ws.on('message', (data) => {
+        const message = JSON.parse(String(data));
+        wsReceived.push(message);
+        if (message.topic === 'onConnect') {
+          ws.send(
+            JSON.stringify({
+              topic: 'camera_activity',
+              payload: JSON.stringify({ front: { motion: false, objects: [] } }),
+            }),
+          );
+        }
+      });
+    });
+  });
+
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
   return {
     port,
     url: `${secure ? 'https' : 'http'}://127.0.0.1:${port}`,
     calls,
+    wsReceived,
+    get wsClientCount() {
+      return wsClients.size;
+    },
+    /** Send `{ topic, payload }` to every WebSocket client, as Frigate does. */
+    wsSend(topic, payload) {
+      for (const ws of wsClients) ws.send(JSON.stringify({ topic, payload }));
+    },
+    /** Close the WebSocket connections; `refuse` also refuses the next ones. */
+    wsDrop({ refuse = false } = {}) {
+      wsRefused = refuse;
+      for (const ws of wsClients) ws.terminate();
+    },
+    /** Forget the issued tokens (as a Frigate restart with a new secret). */
+    revokeTokens() {
+      tokens.clear();
+    },
     setTokenExp(exp) {
       tokenExp = exp;
     },
     close: () =>
       new Promise((resolve) => {
+        for (const ws of wsClients) ws.terminate();
         server.closeAllConnections?.();
         server.close(resolve);
       }),
