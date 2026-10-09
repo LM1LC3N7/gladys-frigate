@@ -63,7 +63,7 @@ test('index.js: connection, discovery, images, states, commands, scenes, actions
     try {
       await waitFor(condition, { ...WAIT, what });
     } catch (err) {
-      throw new Error(`${err.message}\n--- integration output ---\n${output}`);
+      throw new Error(`${err.message}\n--- integration output ---\n${output}`, { cause: err });
     }
   };
 
