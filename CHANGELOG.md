@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-09
+
 ### Changed
 
 - Scene editor: the object and zone fields of the triggers explain what to
