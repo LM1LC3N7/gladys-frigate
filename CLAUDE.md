@@ -13,7 +13,8 @@ and the detailed plan of the next milestones.
   (ESLint enforces it); `src/gladys/` is a thin adapter; `index.js` only
   wires.
 - Runtime dependencies are limited to `@gladysassistant/integration-sdk`,
-  `mqtt`, `sharp`, `undici`. Ask before adding one.
+  `mqtt`, `undici`. Ask before adding one. Images are resized by Frigate
+  (`height` / `quality` of its image endpoints): no image library.
 - Container limits: 256 MB RAM, 0.5 CPU, read-only rootfs, only `/data`
   writable, bridge network (unicast to the LAN only).
 - Gladys rate limits: 300 states/min, 300 scene events/min, 12 images/min per

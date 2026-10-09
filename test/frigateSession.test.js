@@ -279,7 +279,7 @@ test('end to end: real client and trust store against an https Frigate', async (
   const frigate = await startFakeFrigate({ secure: true });
   t.after(() => frigate.close());
   const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-e2e-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5 }));
   const trustStore = await new TrustStore({ filePath: join(dir, 'tls-trust.json') }).load();
   const statuses = [];
   const session = createFrigateSession({

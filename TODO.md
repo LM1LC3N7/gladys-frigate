@@ -31,7 +31,7 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
 - [x] **Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine**
 - [x] **Milestone 4, part 2 — Gladys adapter: states, commands, transports**
 - [x] **Milestone 5 — scene triggers and scene action**
-- [ ] Milestone 6 — docs (install, security, dedicated account, MQTT ACL,
+- [x] **Milestone 6 — docs (install, security, dedicated account, MQTT ACL,
       live video via go2rtc), CHANGELOG, first release
 
 ## Decisions already taken (do not reopen)
@@ -287,27 +287,40 @@ A test pins every event key against the manifest variables.
       `publishCameraImage` on the chosen camera or the event's camera; the
       scene then chains the core action "send the camera image".
 
-## Milestone 6 — docs and release
+## Milestone 6 — docs and release (done, except the maintainer's steps)
 
-- [ ] docs/en.md + docs/fr.md: install, security model (TOFU, expert TLS),
-      dedicated Frigate account, MQTT ACL, WebSocket mode limits, live video
-      via the core `rtsp-camera` service on
-      `rtsp://<frigate>:8554/<cam>` (go2rtc restream), troubleshooting.
-- [ ] Remove the "in development" banners and the `NOT_WIRED` status of
-      `index.js`; CHANGELOG `0.1.0`; make the repo public, add the topic
-      `gladys-assistant-integration`, run the Release workflow, make the
-      ghcr.io package public, `npm run validate:manifest` must pass.
+- [x] docs/en.md + docs/fr.md: quick start, connection, certificates,
+      dedicated account, MQTT ACL, WebSocket mode limits, cameras, scenes
+      with an example, options, live video via the core `rtsp-camera`
+      service on `rtsp://<frigate>:8554/<cam>`, buttons, security,
+      troubleshooting table. "In development" banners removed.
+- [x] End-to-end test of `index.js` (`test/index.e2e.test.js`, fake Gladys
+      in `test/helpers/fakeGladys.js`): it found the transport badges
+      refused by the SDK ("message" only with "degraded"). The image was
+      also run read-only against the same fakes (pin saved in `/data`,
+      clean SIGTERM).
+- [x] `npm run validate:manifest` passes.
+- [x] Former open recommendations: quality job before the release, CHANGELOG
+      section cut at release, `npm audit --omit=dev --audit-level=high` in
+      CI and release, actions pinned by commit SHA, Dependabot
+      (`.github/dependabot.yml`); `sharp` removed (image 321 → 264 MB).
+- [ ] Maintainer: make the repository public, add the topic
+      `gladys-assistant-integration`, run **Actions → Release** (minor:
+      0.2.0), make the ghcr.io package public, then test on a real Gladys
+      (Discover → Add to Gladys, a switch, a scene with the snapshot).
 
-## Open recommendations (maintainer's call, not done)
+## Left for later (not blocking v1)
 
-- Release workflow: it bumps, tags and publishes without running lint and
-  tests; add a quality job before `prepare`.
-- CI: add `npm audit --omit=dev --audit-level=high`; pin the GitHub Actions
-  by commit SHA (with Dependabot for updates); arm64 is only built at
-  release time (the musl arm64 `sharp` binaries are in the lockfile).
-- `npm run validate:manifest` runs the latest, unpinned
-  `github:GladysAssistant/integration-store` through `npx --yes`: pin a
-  commit if supply chain matters more than following rule updates.
+- [ ] Fixtures from real 0.16 / 0.17 / 0.18 config dumps (the tests use a
+      small synthetic config). The HA integration (MIT) has 0.18
+      `TEST_CONFIG` / `TEST_STATS`; reusing them needs a `NOTICE`.
+- [ ] WebSocket watchdog: Frigate sends nothing while idle, so a half-open
+      connection is only noticed by TCP.
+- [ ] `npm run validate:manifest` runs the latest, unpinned
+      `github:GladysAssistant/integration-store`: pin a commit if supply
+      chain matters more than following rule updates.
+- [ ] Out of v1 (decided): PTZ, faces and plates beyond `sub_label`,
+      classification, widgets, profiles, multiple Frigate instances.
 
 ## References
 

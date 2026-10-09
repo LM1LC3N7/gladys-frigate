@@ -1,0 +1,18 @@
+# Weekly update proposals: the GitHub Actions (pinned by commit SHA in the
+# workflows) and the npm dependencies. Every proposal goes through CI.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        dependency-type: development

@@ -91,6 +91,19 @@ export async function startFakeFrigate({
       res.end(JSON.stringify({ username: account?.user ?? 'anonymous', role: 'viewer' }));
       return;
     }
+    const event = /^\/api\/events\/([^/?]+)(\/(?:snapshot|thumbnail)\.jpg)?(?:\?.*)?$/.exec(
+      req.url,
+    );
+    if (event && event[1] === 'known-event') {
+      if (event[2]) {
+        res.setHeader('content-type', 'image/jpeg');
+        res.end(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
+      } else {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ id: 'known-event', camera: 'front', label: 'person' }));
+      }
+      return;
+    }
     const latest = /^\/api\/([^/]+)\/latest\.jpg(?:\?(.*))?$/.exec(req.url);
     const camera = latest && decodeURIComponent(latest[1]);
     if (latest && FRIGATE_CONFIG.cameras[camera]) {

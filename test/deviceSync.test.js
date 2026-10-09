@@ -128,9 +128,13 @@ test('feed and camera status drive the transport badges', async (t) => {
   message('front/status/detect', 'offline');
   await wait(40);
   assert.equal(transports.at(-1).transport, 'unreachable');
+  sync.frigateUp(true);
+  message('front/status/detect', 'online');
+  await wait(5);
+  assert.equal(transports.at(-1).transport, 'local');
   message('available', 'offline');
   await wait(5);
-  assert.match(transports.at(-1).message.en, /offline/);
+  assert.equal(transports.at(-1).transport, 'unreachable');
 });
 
 test('Frigate 0.16: the camera fps of /api/stats tells a lost camera, read once for all', async (t) => {

@@ -179,6 +179,11 @@ export class TrustStore {
     await this.#save();
   }
 
+  /** Resolves once the saves already queued are written (shutdown, tests). */
+  settled() {
+    return this.#writes;
+  }
+
   #assertLoaded() {
     if (!this.loaded) {
       throw new Error('TrustStore: await load() before reading or writing pins');

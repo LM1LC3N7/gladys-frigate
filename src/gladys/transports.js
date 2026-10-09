@@ -8,6 +8,9 @@
 //                real-time feed is interrupted (states may be outdated)
 //   local        otherwise
 //
+// Gladys only takes a message with `degraded`: an unreachable camera has no
+// message (the connection status and the logs say why).
+//
 // Frigate flaps `<camera>/status/<role>` offline/online while it restarts
 // ffmpeg: an offline role only counts once it stayed offline `debounceMs`.
 // Frigate 0.16 has no status topics: the camera fps of /api/stats feeds the
@@ -17,15 +20,6 @@
 import { DEVICE_TYPE } from './discovery.js';
 
 const MESSAGES = {
-  frigateDown: { en: 'Frigate does not answer', fr: 'Frigate ne répond pas' },
-  frigateOffline: {
-    en: 'Frigate announces it is offline (restarting?)',
-    fr: "Frigate s'annonce hors ligne (redémarrage ?)",
-  },
-  detectOffline: {
-    en: 'The camera stream is lost: check the camera and its connection',
-    fr: 'Le flux de la caméra est perdu : vérifiez la caméra et sa connexion',
-  },
   recordOffline: {
     en: 'The recording stream is interrupted',
     fr: "Le flux d'enregistrement est interrompu",
@@ -59,14 +53,11 @@ export function createTransportTracker({ gladys, createdCameras, logger, debounc
   }
 
   function transportOf(camera) {
-    if (state.frigateUp === false) {
-      return { transport: 'unreachable', message: MESSAGES.frigateDown };
-    }
-    if (state.frigateOnline === false) {
-      return { transport: 'unreachable', message: MESSAGES.frigateOffline };
+    if (state.frigateUp === false || state.frigateOnline === false) {
+      return { transport: 'unreachable' };
     }
     if (roleOffline(camera, 'detect')) {
-      return { transport: 'unreachable', message: MESSAGES.detectOffline };
+      return { transport: 'unreachable' };
     }
     if (roleOffline(camera, 'record')) {
       return { transport: 'local', degraded: true, message: MESSAGES.recordOffline };

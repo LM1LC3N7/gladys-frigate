@@ -7,6 +7,7 @@
 // from the environment injected by the Gladys supervisor.
 // -----------------------------------------------------------------------------
 
+import { join } from 'node:path';
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
 import { normalizeConfig } from './src/config.js';
 import { TrustStore } from './src/frigate/tlsTrust.js';
@@ -18,8 +19,10 @@ import { MANIFEST_ACTIONS, SCENE_ACTIONS } from './src/gladys/keys.js';
 import { describeTransition } from './src/gladys/messages.js';
 import { createSceneEvents, createSnapshotAction } from './src/gladys/sceneEvents.js';
 
-// /data is the only writable location of the container (see the Dockerfile).
-const trustStore = new TrustStore({ filePath: '/data/tls-trust.json', logger });
+// /data is the only writable location of the container (see the Dockerfile);
+// FRIGATE_DATA_DIR moves it for development and the end-to-end test.
+const dataDir = process.env.FRIGATE_DATA_DIR || '/data';
+const trustStore = new TrustStore({ filePath: join(dataDir, 'tls-trust.json'), logger });
 const gladys = new GladysIntegration();
 // The device side reads the session lazily (the arrows run after start-up).
 const zoneSensors = () => session.config?.zone_sensors === true;
@@ -100,6 +103,8 @@ gladys.handleShutdown(async (signal) => {
   logger.info(`Received ${signal} -> graceful shutdown`);
   deviceSync.close();
   await session.close();
+  // A certificate pinned just before the stop must reach the disk.
+  await trustStore.settled();
 });
 
 logger.info('Starting the Frigate integration...');

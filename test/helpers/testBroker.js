@@ -23,8 +23,14 @@ export function topicMatches(filter, topic) {
  * @param {boolean} [options.secure]
  * @param {{ username: string, password: string } | null} [options.account]
  * @param {(filter: string) => boolean} [options.denySubscribe] true = refused (0x80)
+ * @param {(topic: string, payload: string) => void} [options.onPublish] a client published
  */
-export async function startTestBroker({ secure = false, account = null, denySubscribe } = {}) {
+export async function startTestBroker({
+  secure = false,
+  account = null,
+  denySubscribe,
+  onPublish,
+} = {}) {
   const clients = new Set();
   const retained = new Map();
   const published = []; // from clients: { topic, payload }
@@ -79,6 +85,7 @@ export async function startTestBroker({ secure = false, account = null, denySubs
         }
         case 'publish':
           published.push({ topic: packet.topic, payload: packet.payload.toString() });
+          onPublish?.(packet.topic, packet.payload.toString());
           break;
         case 'pingreq':
           send(client, { cmd: 'pingresp' });

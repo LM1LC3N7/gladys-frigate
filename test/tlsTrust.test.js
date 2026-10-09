@@ -102,7 +102,7 @@ test('the trust store must be loaded before use', async () => {
 
 test('the trust store persists pins atomically and resets them', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5 }));
   const filePath = join(dir, 'nested', 'tls-trust.json');
   const now = () => new Date('2026-10-08T12:00:00Z');
 
@@ -130,7 +130,7 @@ test('the trust store persists pins atomically and resets them', async (t) => {
 
 test('saves in flight are queued: the file always ends with the last state', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5 }));
   const filePath = join(dir, 'tls-trust.json');
   const warnings = [];
   const store = await new TrustStore({
@@ -145,8 +145,9 @@ test('saves in flight are queued: the file always ends with the last state', asy
   writes.push(store.set('broker:8883', FP_B));
   await new Promise((resolve) => setImmediate(resolve));
   writes.push(store.reset('frigate:8971'));
-  writes.push(store.set('frigate:8971', FP_B));
-  await Promise.all(writes);
+  // Not awaited, as a TLS connector does; settled() waits for it.
+  store.set('frigate:8971', FP_B);
+  await store.settled();
 
   assert.deepEqual(warnings, [], 'no write collided with another one');
   const saved = JSON.parse(await readFile(filePath, 'utf8'));
@@ -156,7 +157,7 @@ test('saves in flight are queued: the file always ends with the last state', asy
 
 test('an unwritable or corrupted store degrades to memory, with a warning', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'gladys-frigate-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5 }));
   const warnings = [];
   const logger = { warn: (m) => warnings.push(m) };
 

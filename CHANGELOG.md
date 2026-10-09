@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- End-to-end test: the real `index.js` against a fake Gladys, a fake Frigate
+  and an MQTT broker stub (connection, discovery, scan, images, states,
+  confirmed command, scene event, buttons, scene action, clean shutdown).
+- Release workflow: runs the CI checks before tagging, and turns the
+  CHANGELOG's "Unreleased" section into the released version (0.1.2 had
+  none). CI audits the runtime dependencies; GitHub Actions pinned by commit
+  SHA, updates proposed by Dependabot.
+- Docs: quick start, security, troubleshooting table (en/fr).
+
 - Scene triggers (milestone 5): "new review" (alert or detection, once more
   when a detection becomes an alert), "object detected" and "object enters
   a zone", with the flat data the manifest declares (camera device, Frigate
@@ -50,7 +59,14 @@ All notable changes to this project are documented here. The format follows
   incident (object detected, object entered a zone, review alert, including
   a detection escalated to an alert), without false positives or stationary
   objects, above the minimum confidence, with a cooldown per camera and
-  object type. Written to the logs until the scene triggers use them.
+  object type; each incident is also written to the logs.
+
+### Changed
+
+- `sharp` removed: Frigate resizes every image itself (image 57 MB smaller).
+- The certificate store directory can be moved with `FRIGATE_DATA_DIR`
+  (development, tests); a certificate pinned just before a stop is written
+  before the container exits.
 
 ### Fixed
 
