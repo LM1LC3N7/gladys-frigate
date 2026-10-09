@@ -1,6 +1,6 @@
 {
   "name": "gladys-frigate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Frigate NVR integration for Gladys Assistant: cameras, motion, object detection, reviews and scene triggers.",
   "type": "module",
