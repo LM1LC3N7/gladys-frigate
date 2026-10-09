@@ -124,6 +124,8 @@ export class TrustStore {
     this.now = now;
     this.pins = new Map();
     this.loaded = false;
+    // The last save failure (pins then live in memory only), null once saved.
+    this.saveError = null;
   }
 
   async load() {
@@ -199,7 +201,9 @@ export class TrustStore {
         mode: 0o600,
       });
       await rename(tmp, this.filePath);
+      this.saveError = null;
     } catch (err) {
+      this.saveError = err;
       await rm(tmp, { force: true }).catch(() => {});
       this.logger?.warn(`TLS trust store not saved, pins kept in memory only: ${err.message}`);
     }

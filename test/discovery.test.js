@@ -6,6 +6,8 @@ import {
   IMAGE_POLL_FREQUENCY_MS,
   buildDevices,
   cameraNameOfDevice,
+  keyPart,
+  parseFeatureId,
   publishDiscovery,
 } from '../src/gladys/discovery.js';
 import { FRIGATE_CONFIG } from './helpers/fakeFrigate.js';
@@ -21,7 +23,15 @@ const gladys = {
 
 const capabilities = readCapabilities('0.17.2', FRIGATE_CONFIG);
 
-test('one camera device per Frigate camera, with its image, polled every minute', () => {
+const featuresOf = (device) =>
+  device.features.map((feature) => [
+    feature.external_id.slice(device.external_id.length + 1),
+    feature.category,
+    feature.type,
+    feature.read_only,
+  ]);
+
+test('one camera device per Frigate camera, polled every minute for its image', () => {
   const devices = buildDevices(gladys, capabilities);
   assert.deepEqual(
     devices.map((device) => [device.name, device.external_id]),
@@ -34,11 +44,68 @@ test('one camera device per Frigate camera, with its image, polled every minute'
   assert.deepEqual(front.params, [{ name: CAMERA_PARAM, value: 'front' }]);
   assert.equal(front.should_poll, true);
   assert.equal(front.poll_frequency, IMAGE_POLL_FREQUENCY_MS);
-  assert.deepEqual(
-    front.features.map((feature) => [feature.external_id, feature.category, feature.type]),
-    [['ext:frigate:camera:front:image', 'camera', 'image']],
+});
+
+test('features follow the Frigate configuration of each camera', () => {
+  const [front, garage] = buildDevices(gladys, capabilities);
+  assert.deepEqual(featuresOf(front), [
+    ['image', 'camera', 'image', true],
+    ['enabled', 'camera', 'enabled', false],
+    ['detect', 'switch', 'binary', false],
+    ['recordings', 'switch', 'binary', false],
+    ['snapshots', 'switch', 'binary', false],
+    ['motion', 'motion-sensor', 'binary', true],
+    ['review', 'text', 'text', true],
+    ['objects', 'counter-sensor', 'integer', true],
+    ['presence-person', 'presence-sensor', 'binary', true],
+    ['count-person', 'counter-sensor', 'integer', true],
+  ]);
+  // No recordings in its file (Frigate refuses to turn them on), tracks cars.
+  const garageKeys = featuresOf(garage).map(([key]) => key);
+  assert.ok(!garageKeys.includes('recordings'));
+  assert.ok(garageKeys.includes('presence-car') && garageKeys.includes('count-car'));
+  assert.ok(!garageKeys.includes('presence-person'));
+  // Switches confirm their state; sensors do not.
+  const detect = front.features.find((f) => f.external_id.endsWith(':detect'));
+  assert.equal(detect.has_feedback, true);
+  assert.equal(
+    front.features.find((f) => f.external_id.endsWith(':count-person')).keep_history,
+    false,
   );
-  assert.equal(front.features[0].read_only, true);
+});
+
+test('audio detection only when enabled in the Frigate file; zone sensors on demand', () => {
+  const config = structuredClone(FRIGATE_CONFIG);
+  config.cameras.front.audio = { enabled: false, enabled_in_config: true };
+  config.cameras.front.objects.track = ['person', 'traffic light'];
+  const withAudio = readCapabilities('0.17.2', config);
+  const [front] = buildDevices(gladys, withAudio, { zoneSensors: true });
+  const keys = featuresOf(front).map(([key]) => key);
+  assert.ok(keys.includes('audio'));
+  assert.ok(keys.includes('presence-traffic_light'));
+  // The porch zone tracks persons only.
+  assert.deepEqual(
+    keys.filter((key) => key.startsWith('zone-')),
+    ['zone-porch-person'],
+  );
+  assert.equal(
+    front.features.find((f) => f.external_id.endsWith(':zone-porch-person')).name,
+    'Porch person',
+  );
+});
+
+test('feature ids split back into camera and key', () => {
+  assert.deepEqual(parseFeatureId(gladys, 'ext:frigate:camera:front:detect'), {
+    camera: 'front',
+    key: 'detect',
+  });
+  assert.deepEqual(parseFeatureId(gladys, 'ext:frigate:camera:pi3-cam:zone-a-person'), {
+    camera: 'pi3-cam',
+    key: 'zone-a-person',
+  });
+  assert.equal(parseFeatureId(gladys, 'ext:frigate:camera:front'), null);
+  assert.equal(parseFeatureId(gladys, 'ext:other:camera:front:detect'), null);
+  assert.equal(keyPart('Traffic Light'), 'traffic_light');
 });
 
 test('Gladys poll frequencies: 60 s is an allowed value', () => {

@@ -1,9 +1,8 @@
 # Frigate
 
-> **Status: in development.** The connection to Frigate, the three buttons
-> of the Configuration tab, the cameras (with their image) and the real-time
-> feed work (the detections are written to the logs for now); the sensors,
-> the switches and the scene triggers come in the next versions.
+> **Status: in development.** The connection, the cameras (image, sensors,
+> switches) and the real-time feed work; the scene triggers come in the next
+> version (the detections are written to the logs for now).
 
 Bring the cameras of your [Frigate NVR](https://frigate.video) into Gladys
 Assistant: snapshots, motion, detected objects, review alerts, camera
@@ -107,15 +106,32 @@ are written to the integration logs (**View logs**), one line per incident:
 
 Open the **Discover** tab of the integration: every Frigate camera is
 listed (press **Scan** to read Frigate again). Press **Add to Gladys** on the
-ones you want: each
-becomes a camera device for the dashboard camera widget, the chat ("show me
-the garage") and the "send camera image" scene action.
+ones you want. Each camera device carries what its Frigate configuration
+enables:
 
-- The image is refreshed **every minute**, and taken fresh when Gladys asks
-  for it (chat, scenes). Frigate resizes it to fit the 150 KB Gladys accepts.
-- Coming next: motion, detected objects and the camera switches. Gladys
-  will then show **Update** next to the cameras already created, in the
-  Discover tab: press it to add the new features to them.
+| Feature                                 | What it does                                                                                                               |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Image                                   | Refreshed every minute, taken fresh when Gladys asks (chat, scenes). Frigate resizes it to fit the 150 KB Gladys accepts.  |
+| Camera enabled                          | Turns the camera on or off **in Frigate** (no detection, no recording while off); Gladys then shows no image of it either. |
+| Object detection, Snapshots             | Frigate's switches.                                                                                                        |
+| Recordings, Audio detection             | Only when enabled in the Frigate configuration file: Frigate refuses to turn them on otherwise.                            |
+| Motion                                  | Motion seen by Frigate.                                                                                                    |
+| One sensor per tracked object (Person…) | Present / absent, and its count. Plus the total of objects.                                                                |
+| Review status                           | none, detection or alert.                                                                                                  |
+| Zone sensors                            | With the "Zone occupancy sensors" option: one presence sensor per zone and object.                                         |
+
+A switch is only shown as changed once Frigate confirms it. Without an MQTT
+broker, the Frigate WebSocket only accepts commands from an **admin** account
+(Frigate 0.17 and later): with another role, the command fails with that
+explanation.
+
+The badge of each camera says when it is not nominal: unreachable when
+Frigate does not answer, announces it is offline, or the camera stream has
+been lost for 30 seconds; degraded when its recording stream is interrupted
+or the real-time feed is down (the states may then be outdated).
+
+A camera added with an older version of the integration shows **Update** in
+the Discover tab: press it to add the new features.
 
 ## Live video
 

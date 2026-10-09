@@ -58,6 +58,8 @@ function normalizeCamera(name, camera = {}) {
     enabledInConfig: camera.enabled_in_config ?? camera.enabled !== false,
     detect: enabled(camera.detect),
     record: enabled(camera.record),
+    // Frigate refuses to turn recordings on when they are off in the file.
+    recordInConfig: camera.record?.enabled_in_config ?? enabled(camera.record),
     snapshots: enabled(camera.snapshots),
     // A camera whose audio detection is off in the file cannot be toggled on.
     audio: camera.audio?.enabled_in_config ?? enabled(camera.audio),

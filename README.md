@@ -7,11 +7,10 @@ integration SDK.
 
 > **Status: in development.** The integration connects to Frigate
 > (certificate trust, authentication, version and cameras), the three
-> Configuration buttons work, each camera can be created in Gladys with its
-> image (Discover tab), and the real-time feed (MQTT, or the Frigate
-> WebSocket) is followed and turned into deduplicated detections, shown in
-> the logs for now. The sensors, switches and scene triggers land in the next
-> milestones. See the [CHANGELOG](./CHANGELOG.md).
+> Configuration buttons work, each camera can be created in Gladys (image,
+> sensors, switches, transport badge), and the real-time feed (MQTT, or the
+> Frigate WebSocket) is followed and turned into deduplicated detections,
+> shown in the logs until the scene triggers use them (next milestone). See the [CHANGELOG](./CHANGELOG.md).
 
 | Compatibility    | Versions                                             |
 | ---------------- | ---------------------------------------------------- |
@@ -66,6 +65,10 @@ src/gladys/       thin adapter to the Gladys SDK
   frigateSession.js connection lifecycle, real-time feed, status, the three buttons
   discovery.js      Frigate cameras -> Gladys devices (Discover tab)
   images.js         camera images under 150 KB (resized by Frigate), shared captures
+  deviceSync.js     states, commands (confirmed by Frigate), polls, badges
+  cameraStates.js   typed messages -> feature states
+  statePublisher.js dedupe, batches, rate limit of the states sent to Gladys
+  transports.js     per-camera badge (unreachable / degraded), debounced
   messages.js       user-facing texts (en/fr) for errors, certificates, accounts
   keys.js           frozen manifest keys (scene triggers / actions)
   status.js         connection status message (errors and security warnings)

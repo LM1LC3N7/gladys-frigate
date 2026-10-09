@@ -167,5 +167,6 @@ test('an unwritable or corrupted store degrades to memory, with a warning', asyn
   await store.set('frigate:8971', FP_A);
   assert.equal(store.get('frigate:8971'), FP_A, 'the pin is kept in memory');
   assert.equal(warnings.length, 2);
+  assert.ok(store.saveError, 'the failure is known (connection status warning)');
   await assert.rejects(access(`${filePath}.tmp`), { code: 'ENOENT' }, 'no temporary file left');
 });

@@ -29,9 +29,7 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
       at the maintainer's request (0.1.2 answered no scan: the Discover tab
       spun for minutes and showed nothing). See "Milestone 4" below.
 - [x] **Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine**
-- [ ] **Milestone 4, part 2 — Gladys adapter: states, commands, transports**
-      (next; ask the maintainer whether milestone 5, the scene triggers, goes
-      first: the transitions are ready and only logged today)
+- [x] **Milestone 4, part 2 — Gladys adapter: states, commands, transports**
 - [ ] Milestone 5 — scene triggers and scene action
 - [ ] Milestone 6 — docs (install, security, dedicated account, MQTT ACL,
       live video via go2rtc), CHANGELOG, first release
@@ -63,7 +61,7 @@ config). Note: fetch refuses the "bad ports" of the Fetch standard (1, 9,
 
 `src/frigate/httpClient.js` (no Gladys import — ESLint enforces it):
 
-- [ ] undici `Agent` with a custom `connect` built on `tls.connect`:
+- [x] undici `Agent` with a custom `connect` built on `tls.connect`:
       `rejectUnauthorized: false`, then on `secureConnect` compute
       `chainValid = socket.authorized` (system store, or `ca: tls_ca`),
       `hostnameValid = !tls.checkServerIdentity(host, peerCert)`,
@@ -83,7 +81,7 @@ config). Note: fetch refuses the "bad ports" of the Fetch standard (1, 9,
     IP) falls back to first use, so every renewal looks like a changed
     certificate: say it in the status ("use the host name the certificate
     covers"). The docs already warn about it.
-- [ ] Auth: `POST /api/login` `{ user, password }` → JWT in `Set-Cookie`
+- [x] Auth: `POST /api/login` `{ user, password }` → JWT in `Set-Cookie`
       (cookie name configurable in Frigate, default `frigate_token`; take
       the first cookie). Send `Authorization: Bearer <jwt>` (supported by
       0.16.4, 0.17, 0.18). Decode `exp` from the JWT payload (no signature
@@ -94,31 +92,31 @@ config). Note: fetch refuses the "bad ports" of the Fetch standard (1, 9,
       an unknown user). So first `GET /api/config` without a token: 200 =
       no auth (port 5000 or auth disabled: no login, warn in the status),
       401 = log in. It also spares a rate-limited login attempt.
-- [ ] Timeout 10 s, body cap (container: 256 MB), retry with exponential
+- [x] Timeout 10 s, body cap (container: 256 MB), retry with exponential
       backoff on network errors / 5xx for GET only; honor `Retry-After` on
       429; never retry 4xx. Errors sanitized: no password, token or cookie
       in messages or logs.
-- [ ] Endpoints: `GET /api/version` (public, text), `GET /api/config`,
+- [x] Endpoints: `GET /api/version` (public, text), `GET /api/config`,
       `GET /api/stats`, `GET /api/<cam>/latest.jpg?height=&quality=`,
       `GET /api/events/<id>/snapshot.jpg?bbox=1&height=&quality=` (for
       `attach_event_snapshot`), `GET /api/events/<id>` (camera of an event).
 
 `src/frigate/capabilities.js`:
 
-- [ ] `/api/version` + `/api/config` → normalized model: per camera `name`,
+- [x] `/api/version` + `/api/config` → normalized model: per camera `name`,
       `friendly_name`, `enabled`, `detect`, `record`, `snapshots`, `audio`
       (`enabled_in_config`), `review.alerts/detections`, tracked `objects`,
       `zones` (+ their objects), `onvif`/PTZ, plus global features (face
       recognition, LPR, genai, semantic search). Refuse < 0.16.0.
-- [ ] Version-gated flags: `statusTopics` (`<cam>/status/<role>`, 0.17+),
+- [x] Version-gated flags: `statusTopics` (`<cam>/status/<role>`, 0.17+),
       `cameraEnabledTopic` (0.16+), `reviewStatusTopic` (0.16+).
-- [ ] `/api/stats` → per-camera health (camera fps 0 = offline) as the 0.16
+- [x] `/api/stats` → per-camera health (camera fps 0 = offline) as the 0.16
       fallback for `status/<role>`.
 - [ ] Fixtures for 0.16 / 0.17 / 0.18. The HA integration (MIT) has 0.18
       `TEST_CONFIG` / `TEST_STATS` in `tests/__init__.py` → if reused, add a
       `NOTICE` with attribution. 0.16 / 0.17: rebuild from each tag's config
       schema, or use anonymized dumps from the maintainer if provided.
-- [ ] Tests: local HTTPS server with `test/fixtures/tls/` (CA-verified,
+- [x] Tests: local HTTPS server with `test/fixtures/tls/` (CA-verified,
       first use pins, changed certificate refused, reset re-pins, expert
       fingerprint, expert CA), auth flows, retries with fake timers,
       capabilities on every fixture.
@@ -222,7 +220,19 @@ drop the dependency (maintainer's call, saves ~30 MB of image).
 Adding the other features below changes the device structure: the Discover
 tab then shows "Update" on the cameras already created (documented).
 
-- [ ] `src/gladys/discovery.js`: the other features, only what the
+Part 2 done: full features in `discovery.js`; `cameraStates.js` (typed
+message → states, incl. `camera_activity`), `statePublisher.js` (dedupe,
+batches ≤ 100, 250/min, latest value kept for devices created later),
+`transports.js` (debounced `status/<role>`, Frigate down/offline, feed
+lost), `deviceSync.js` (commands confirmed by `<cam>/<setting>/state`
+within 4 s, polls, 0.16 health from `/api/stats`). Decisions: review status
+is a `text` feature (none / detection / alert); presence per object =
+`presence-sensor`, counts = `counter-sensor` with history off; the
+recordings and audio switches only exist when enabled in the Frigate file
+(Frigate refuses to turn them on otherwise); a camera turned off gets no
+image pushed. Original plan:
+
+- [x] `src/gladys/discovery.js`: the other features, only what the
       Frigate config enables. Features: `camera/image`, `camera/enabled`
       (↔ `<cam>/enabled/set`; Gladys' `CAMERA.ENABLED` also stops Gladys
       polling the image, consistent with a disabled Frigate camera), switches
@@ -230,17 +240,17 @@ tab then shows "Update" on the cameras already created (documented).
       `has_feedback: true`), `motion-sensor` binary, one `presence-sensor`
       binary per tracked object (count > 0), `counter-sensor` integer total + per object, review status (`text`/`text` read-only, or integer
       0/1/2 — decide), zone sensors when `zone_sensors` is on.
-- [ ] `states.js`: batch (≤ 100 per request), dedupe last values, stay under
+- [x] `states.js`: batch (≤ 100 per request), dedupe last values, stay under
       300 states/min; only for devices the user created (`gladys.devices`).
-- [ ] `commands.js`: `onSetValue` → MQTT/WS `set` topic.
+- [x] `commands.js`: `onSetValue` → MQTT/WS `set` topic.
 - [x] `images.js`: `onGetImage` → `latest.jpg` under 150 KB (resized by
       Frigate, see above); ≤ 12 images/min per camera.
 - [ ] Push the alert snapshot (milestone 5 / review alerts).
-- [ ] `publishTransports`: `local`; `unreachable` / `degraded` from the
+- [x] `publishTransports`: `local`; `unreachable` / `degraded` from the
       debounced `status/<role>`; `setConnectionStatus` driven by
       `<prefix>/available` and the HTTP state, with the config warnings of
       `src/gladys/status.js` and the TLS errors ("certificate changed").
-- [ ] Status warning when the trust store cannot be saved (`/data` not
+- [x] Status warning when the trust store cannot be saved (`/data` not
       writable): pins then live in memory only and every restart is a new
       first use. The image creates `/data` owned by `node` (a fresh Docker
       volume was root-owned before); still check how the Gladys supervisor
@@ -253,7 +263,7 @@ tab then shows "Update" on the cameras already created (documented).
       reason), `refresh_cameras` (re-read config, re-publish discovery),
       `reset_certificate` (`trustStore.reset()`, then reconnect; answer with
       the newly pinned fingerprint when the reconnection succeeds).
-- [ ] Re-discovery when the Frigate config changes (cameras can be added
+- [x] Re-discovery when the Frigate config changes (cameras can be added
       without restart since 0.17) and full resync when `available` comes
       back `online` or MQTT reconnects. Clean shutdown, no orphan timer.
 

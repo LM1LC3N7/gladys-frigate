@@ -8,6 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Camera devices complete (milestone 4): camera enabled (Frigate's own
+  on/off), switches for object detection, recordings, snapshots and audio
+  detection (the last two only when enabled in the Frigate file), motion,
+  presence and count per tracked object, total of objects, review status,
+  optional zone sensors. Switches are confirmed by Frigate before the
+  command succeeds, with a reason when it does not (WebSocket mode needs an
+  admin account). States are deduplicated, batched and kept under the
+  Gladys rate limit; a camera created later gets its current states at once.
+- Transport badge per camera: unreachable when Frigate does not answer or is
+  offline, or the camera stream is lost for 30 s (debounced: Frigate flaps
+  while restarting ffmpeg; Frigate 0.16 uses the camera fps of /api/stats);
+  degraded when recording is interrupted or the real-time feed is down.
+- Connection status warning when the pinned certificates cannot be saved in
+  `/data`.
+
 - Cameras in Gladys: the Discover tab lists one camera device per Frigate
   camera (published on every connection, on **Scan** and on **Refresh the
   cameras**). Its image is pushed every minute (Gladys polls the device) and

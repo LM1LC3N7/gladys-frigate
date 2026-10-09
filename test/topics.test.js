@@ -56,8 +56,10 @@ test('camera topics: motion, review status, settings, status per role', () => {
     type: 'cameraStatus',
     camera: 'front',
     role: 'detect',
-    online: false,
+    state: 'offline',
   });
+  assert.equal(parse('front/status/record', 'disabled').state, 'disabled');
+  assert.equal(parse('front/status/record', 'maybe'), null);
 });
 
 test('counts on cameras and zones; unknown names and garbage are ignored', () => {

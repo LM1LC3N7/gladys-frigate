@@ -16,7 +16,8 @@
 //   <camera>/review_status         NONE | DETECTION | ALERT
 //   <camera>/<setting>/state       ON | OFF, retained (detect, recordings,
 //                                  snapshots, motion, enabled, audio…)
-//   <camera>/status/<role>         online | offline (0.17+: detect, record…)
+//   <camera>/status/<role>         online | offline | disabled (0.17+: detect,
+//                                  record, audio)
 //   <camera|zone>/<label>          number of objects ("all" = every label)
 //   <camera|zone>/<label>/active   number of moving objects
 // Cameras and zones share the count topics: the names known from the
@@ -30,6 +31,7 @@ export const MAX_PAYLOAD_LENGTH = 256 * 1024;
 
 const ON_OFF = { ON: true, OFF: false };
 const REVIEW_STATUSES = new Set(['NONE', 'DETECTION', 'ALERT']);
+const CAMERA_STATUSES = new Set(['online', 'offline', 'disabled']);
 
 function asText(payload) {
   if (typeof payload === 'string') return payload;
@@ -130,9 +132,10 @@ export function parseMessage(topic, payload, { cameras, zones }) {
       return on === undefined ? null : { type: 'setting', camera: scope, setting: second, on };
     }
     if (isCamera && second === 'status') {
+      // online | offline | disabled (the role is turned off, e.g. detection)
       const state = asText(payload)?.trim();
-      return state
-        ? { type: 'cameraStatus', camera: scope, role: third, online: state === 'online' }
+      return CAMERA_STATUSES.has(state)
+        ? { type: 'cameraStatus', camera: scope, role: third, state }
         : null;
     }
   }

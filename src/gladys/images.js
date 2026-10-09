@@ -134,3 +134,44 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
     },
   };
 }
+
+/**
+ * The image side of the camera devices: push on poll / creation (never
+ * throws, a camera failing every minute logs once), capture on demand.
+ * @param {object} options
+ * @param {object} options.gladys SDK instance
+ * @param {ReturnType<typeof createCameraImages>} options.images
+ * @param {(gladys: object, device: object) => string | null} options.cameraOf
+ * @param {() => boolean} options.isConnected
+ * @param {{ warn: Function }} options.logger
+ */
+export function createDeviceImages({ gladys, images, cameraOf, isConnected, logger }) {
+  const errors = new Map(); // camera -> last error message
+
+  return {
+    async pushImage(device) {
+      const camera = cameraOf(gladys, device);
+      if (!camera || !isConnected()) {
+        return;
+      }
+      try {
+        await images.push(device.external_id, camera);
+        errors.delete(camera);
+      } catch (err) {
+        if (errors.get(camera) !== err.message) {
+          errors.set(camera, err.message);
+          logger.warn(`Could not update the image of camera ${camera}: ${err.message}`);
+        }
+      }
+    },
+
+    /** onGetImage: a fresh image, or a clear error. */
+    captureImage(device) {
+      const camera = cameraOf(gladys, device);
+      if (!camera) {
+        return Promise.reject(new Error(`${device?.external_id} is not a Frigate camera`));
+      }
+      return images.capture(camera);
+    },
+  };
+}

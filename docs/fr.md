@@ -1,10 +1,9 @@
 # Frigate
 
-> **Statut : en développement.** La connexion à Frigate, les trois boutons
-> de l'onglet Configuration, les caméras (avec leur image) et le flux temps
-> réel fonctionnent (les détections sont écrites dans les logs pour
-> l'instant) ; les capteurs, les interrupteurs et les déclencheurs de scène
-> arrivent dans les prochaines versions.
+> **Statut : en développement.** La connexion, les caméras (image, capteurs,
+> interrupteurs) et le flux temps réel fonctionnent ; les déclencheurs de
+> scène arrivent dans la prochaine version (les détections sont écrites dans
+> les logs pour l'instant).
 
 Intégrez les caméras de votre [Frigate NVR](https://frigate.video) dans Gladys
 Assistant : images, mouvement, objets détectés, alertes de revue,
@@ -115,17 +114,34 @@ par incident : `front: person detected, 87 %`, `front: person entered porch,
 
 Ouvrez l'onglet **Découverte** de l'intégration : chaque caméra de Frigate y
 est listée (cliquez sur **Scanner** pour relire Frigate). Cliquez sur
-**Ajouter à Gladys** pour celles que vous voulez : chacune devient un appareil caméra pour le widget caméra du
-tableau de bord, le chat (« montre-moi le garage ») et l'action de scène
-« envoyer l'image de la caméra ».
+**Ajouter à Gladys** pour celles que vous voulez. Chaque appareil caméra
+porte ce que sa configuration Frigate active :
 
-- L'image est rafraîchie **chaque minute**, et prise à l'instant quand
-  Gladys la demande (chat, scènes). Frigate la redimensionne pour tenir dans
-  les 150 Ko qu'accepte Gladys.
-- À venir : le mouvement, les objets détectés et les interrupteurs de la
-  caméra. Gladys affichera alors **Mettre à jour** à côté des caméras déjà
-  créées, dans l'onglet Découverte : cliquez dessus pour leur ajouter les
-  nouvelles fonctionnalités.
+| Fonctionnalité                       | Rôle                                                                                                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Image                                | Rafraîchie chaque minute, prise à l'instant quand Gladys la demande (chat, scènes). Frigate la réduit sous les 150 Ko acceptés par Gladys.   |
+| Caméra activée (Camera enabled)      | Allume ou éteint la caméra **dans Frigate** (ni détection ni enregistrement quand elle est éteinte) ; Gladys n'en montre alors plus l'image. |
+| Détection d'objets, instantanés      | Les interrupteurs de Frigate.                                                                                                                |
+| Enregistrements, détection audio     | Seulement s'ils sont activés dans le fichier de configuration de Frigate : sinon Frigate refuse de les allumer.                              |
+| Mouvement                            | Le mouvement vu par Frigate.                                                                                                                 |
+| Un capteur par objet suivi (Person…) | Présent / absent, et son nombre. Plus le total des objets.                                                                                   |
+| Statut de revue                      | none (aucune), detection ou alert.                                                                                                           |
+| Capteurs de zone                     | Avec l'option « Capteurs d'occupation par zone » : un capteur de présence par zone et par objet.                                             |
+
+Un interrupteur n'est affiché comme changé qu'une fois confirmé par Frigate.
+Sans broker MQTT, le WebSocket de Frigate n'accepte les commandes que d'un
+compte **admin** (Frigate 0.17 et plus) : avec un autre rôle, la commande
+échoue avec cette explication.
+
+Le badge de chaque caméra signale quand elle n'est pas nominale : injoignable
+quand Frigate ne répond pas, s'annonce hors ligne, ou que le flux de la
+caméra est perdu depuis 30 secondes ; dégradée quand son flux
+d'enregistrement est interrompu ou que le flux temps réel est coupé (les
+états peuvent alors être périmés).
+
+Une caméra ajoutée avec une version précédente de l'intégration affiche
+**Mettre à jour** dans l'onglet Découverte : cliquez dessus pour ajouter les
+nouvelles fonctionnalités.
 
 ## Vidéo en direct
 
