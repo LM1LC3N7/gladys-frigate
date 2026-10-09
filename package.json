@@ -20,7 +20,7 @@
   "dependencies": {
     "@gladysassistant/integration-sdk": "^0.14.0",
     "mqtt": "^5.16.0",
-    "undici": "^7.30.0"
+    "undici": "^8.11.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
