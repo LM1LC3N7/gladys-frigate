@@ -11,8 +11,8 @@
 //   - A safety net under the Gladys limit of 300 events per minute (the
 //     engine's cooldown normally keeps far below it).
 //   - attach_event_snapshot: the snapshot of a Frigate event becomes the
-//     camera image (the event's camera by default), for "send the camera
-//     image" right after it.
+//     camera image (the event's camera by default) for a minute, for "send
+//     the camera image" right after it (./images.js, attach).
 // -----------------------------------------------------------------------------
 
 import { TRANSITIONS } from '../frigate/eventEngine.js';
@@ -136,7 +136,7 @@ export function createSceneEvents({
  * Handler of the attach_event_snapshot scene action.
  * @param {object} options
  * @param {{ externalIds: Function }} options.gladys
- * @param {{ eventSnapshot: Function, publishImage: Function }} options.images
+ * @param {{ eventSnapshot: Function, attach: Function }} options.images
  * @param {() => object | null} options.getClient Frigate HTTP client while connected
  */
 export function createSnapshotAction({ gladys, images, getClient }) {
@@ -166,8 +166,8 @@ export function createSnapshotAction({ gladys, images, getClient }) {
       device = gladys.externalIds(DEVICE_TYPE, event.camera).device;
     }
     const image = await images.eventSnapshot(eventId, { bbox: fields.bounding_box !== false });
-    if (!(await images.publishImage(device, image))) {
-      throw new SceneActionError('Too many images for this camera this minute (Gladys accepts 12)');
-    }
+    // Over the Gladys image rate limit the dashboard keeps its image, but the
+    // snapshot is still what "send the camera image" gets: not a failure.
+    await images.attach(device, image);
   };
 }

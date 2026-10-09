@@ -150,8 +150,14 @@ positifs et les objets immobiles ne déclenchent jamais.
 | Frigate : objet détecté             | Frigate commence à suivre un objet (personne, voiture…)                                                 | caméra, objet, zone           |
 | Frigate : objet entre dans une zone | Un objet suivi entre dans une zone définie dans Frigate                                                 | caméra, zone, objet           |
 
-L'objet et la zone sont les noms utilisés dans Frigate (`person`, `car`,
-`porch`…). Une revue est filtrée sur son objet **principal** (le premier des
+L'objet et la zone sont les noms utilisés dans Frigate, en minuscules
+(`person`, `car`, `dog`, `cat`, `bicycle`… pour les objets, ceux de
+`objects.track` ; `porch`… pour les zones) ; un champ vide accepte n'importe
+quelle valeur. Les objets suivis par une caméra sont aussi ses capteurs de
+présence (Person, Car…). « Objet détecté » ne se déclenche que sur un objet
+confirmé par la détection de Frigate, au-dessus de la confiance minimale :
+un simple mouvement ne le déclenche jamais (le mouvement est le capteur
+« Motion » de la caméra). Une revue est filtrée sur son objet **principal** (le premier des
 objets suivis par la caméra, dans l'ordre de la configuration Frigate) et sa
 première zone ; tous sont dans les variables `objects` et `zones`. Variables
 disponibles dans les actions suivantes : `camera`, `camera_name`, `label`,
@@ -165,8 +171,14 @@ envoie bien l'alerte.
 **Action « Frigate : joindre l'image de l'événement »** : publie l'instantané
 que Frigate a gardé pour un événement (avec ou sans son cadre de détection)
 comme image de la caméra (celle de l'événement par défaut). Utilisez
-`{{triggerEvent.data.event_id}}` comme identifiant, puis « Envoyer une image de caméra ». Quand Frigate ne garde pas d'instantané pour la caméra, sa
-miniature est utilisée.
+`{{triggerEvent.data.event_id}}` comme identifiant, puis « Envoyer une image
+de caméra ». Pendant une minute, c'est aussi l'image que Gladys reçoit quand
+il demande une image en direct de cette caméra (« Envoyer une image de
+caméra », la vue en direct du tableau de bord). Quand Frigate ne garde pas
+d'instantané pour la caméra, ou en garde un trop lourd pour Gladys, sa
+miniature est utilisée. Une fois l'événement terminé, Frigate sert
+l'instantané qu'il a enregistré : le cadre suit alors son propre réglage
+`snapshots.bounding_box`.
 
 Exemple — une photo sur votre téléphone quand quelqu'un vient à la porte :
 

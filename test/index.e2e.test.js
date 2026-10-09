@@ -156,6 +156,9 @@ test('index.js: connection, discovery, images, states, commands, scenes, actions
   });
   assert.equal(snapshot.success, true, snapshot.error);
   assert.equal(gladys.posts('/camera/image').at(-1).body.device_external_id, front.external_id);
+  // "Send a camera image" asks for a live image: it must get the snapshot.
+  const sent = await gladys.command('camera.get-image', { device: created });
+  assert.equal(sent.data.image, gladys.posts('/camera/image').at(-1).body.image);
 
   // 7. A clean shutdown.
   child.kill('SIGTERM');

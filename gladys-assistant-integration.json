@@ -310,6 +310,10 @@
           "label": {
             "en": "Main object (e.g. person)",
             "fr": "Objet principal (ex. person)"
+          },
+          "description": {
+            "en": "The main object of the review (the first one in the objects order of your Frigate config), in lowercase English: person, car, dog… Leave empty for any object.",
+            "fr": "L'objet principal de la revue (le premier dans l'ordre des objets de votre configuration Frigate), en anglais et en minuscules : person, car, dog… Laissez vide pour n'importe quel objet."
           }
         },
         {
@@ -318,6 +322,10 @@
           "label": {
             "en": "Main zone",
             "fr": "Zone principale"
+          },
+          "description": {
+            "en": "Zone name exactly as defined in your Frigate config (e.g. porch). Leave empty for any zone.",
+            "fr": "Nom de la zone exactement comme dans votre configuration Frigate (ex. porch). Laissez vide pour n'importe quelle zone."
           }
         }
       ],
@@ -411,8 +419,8 @@
         "fr": "Frigate : objet détecté"
       },
       "description": {
-        "en": "A new object (person, car…) is tracked by Frigate.",
-        "fr": "Un nouvel objet (personne, voiture…) est suivi par Frigate."
+        "en": "Frigate tracks a new object (person, car…) confirmed by its detection, above the minimum confidence: simple motion never fires it. Once per object, within the trigger cooldown.",
+        "fr": "Frigate suit un nouvel objet (personne, voiture…) confirmé par sa détection, au-dessus de la confiance minimale : un simple mouvement ne le déclenche jamais. Une fois par objet, dans la limite du cooldown des déclencheurs."
       },
       "fields": [
         {
@@ -430,6 +438,10 @@
           "label": {
             "en": "Object (e.g. person)",
             "fr": "Objet (ex. person)"
+          },
+          "description": {
+            "en": "Frigate object type, in lowercase English, as in objects.track of your Frigate config: person, car, dog, cat, bicycle, motorcycle, bird… Each tracked type also appears as a sensor named after it (Person, Car…) on the camera device. Leave empty for any object.",
+            "fr": "Type d'objet Frigate, en anglais et en minuscules, comme dans objects.track de votre configuration Frigate : person (personne), car (voiture), dog (chien), cat (chat), bicycle (vélo), motorcycle (moto), bird (oiseau)… Chaque type suivi apparaît aussi comme capteur à son nom (Person, Car…) sur l'appareil caméra. Laissez vide pour n'importe quel objet."
           }
         },
         {
@@ -438,6 +450,10 @@
           "label": {
             "en": "Zone",
             "fr": "Zone"
+          },
+          "description": {
+            "en": "Zone name exactly as defined in your Frigate config (e.g. porch). Leave empty for any zone.",
+            "fr": "Nom de la zone exactement comme dans votre configuration Frigate (ex. porch). Laissez vide pour n'importe quelle zone."
           }
         }
       ],
@@ -534,6 +550,10 @@
           "label": {
             "en": "Zone",
             "fr": "Zone"
+          },
+          "description": {
+            "en": "Zone name exactly as defined in your Frigate config (e.g. porch). Leave empty for any zone.",
+            "fr": "Nom de la zone exactement comme dans votre configuration Frigate (ex. porch). Laissez vide pour n'importe quelle zone."
           }
         },
         {
@@ -542,6 +562,10 @@
           "label": {
             "en": "Object (e.g. person)",
             "fr": "Objet (ex. person)"
+          },
+          "description": {
+            "en": "Frigate object type, in lowercase English, as in objects.track of your Frigate config: person, car, dog, cat, bicycle, motorcycle, bird… Each tracked type also appears as a sensor named after it (Person, Car…) on the camera device. Leave empty for any object.",
+            "fr": "Type d'objet Frigate, en anglais et en minuscules, comme dans objects.track de votre configuration Frigate : person (personne), car (voiture), dog (chien), cat (chat), bicycle (vélo), motorcycle (moto), bird (oiseau)… Chaque type suivi apparaît aussi comme capteur à son nom (Person, Car…) sur l'appareil caméra. Laissez vide pour n'importe quel objet."
           }
         }
       ],

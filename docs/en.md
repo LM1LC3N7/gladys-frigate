@@ -141,7 +141,13 @@ positives and objects standing still never fire.
 | Frigate: object detected      | Frigate starts tracking an object (person, car…)                                              | camera, object, zone           |
 | Frigate: object enters a zone | A tracked object enters a zone defined in Frigate                                             | camera, zone, object           |
 
-Object and zone are the names used in Frigate (`person`, `car`, `porch`…).
+Object and zone are the names used in Frigate, in lowercase (`person`,
+`car`, `dog`, `cat`, `bicycle`… for objects, those of `objects.track`;
+`porch`… for zones); an empty field accepts any value. The objects a camera
+tracks are also its presence sensors (Person, Car…). "Object detected" only
+fires on an object confirmed by Frigate's detection, above the minimum
+confidence: plain motion never fires it (motion is the camera's "Motion"
+sensor).
 A review is filtered on its **main** object (the first of the camera's
 tracked objects, in the order of the Frigate configuration) and its first
 zone; all of them are in the `objects` and `zones` variables. Variables
@@ -156,8 +162,12 @@ after it sends the alert.
 **Action "Frigate: attach the event snapshot"**: publishes the snapshot
 Frigate kept for an event (with or without its bounding box) as the image of
 the camera (the event's camera by default). Use `{{triggerEvent.data.event_id}}`
-as the event id, then "Send a camera image". When Frigate keeps no snapshot
-for the camera, its thumbnail is used.
+as the event id, then "Send a camera image". For one minute, the snapshot is
+also what Gladys gets when it asks for a live image of that camera ("Send a
+camera image", the dashboard live view). When Frigate keeps no snapshot for
+the camera, or keeps one too large for Gladys, its thumbnail is used. Once
+the event is over, Frigate serves the snapshot it saved: the bounding box
+then follows its own `snapshots.bounding_box` setting.
 
 Example — a photo on your phone when someone comes to the door:
 

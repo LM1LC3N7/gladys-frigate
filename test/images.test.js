@@ -7,6 +7,7 @@ import {
   MAX_IMAGE_LENGTH,
   NotConnectedError,
   createCameraImages,
+  createDeviceImages,
 } from '../src/gladys/images.js';
 
 /** Fake client: the JPEG size depends on the asked height and quality. */
@@ -124,7 +125,7 @@ test('event snapshots are fitted too, with the thumbnail when Frigate keeps none
     async getEventSnapshot(eventId, options) {
       asked.push([eventId, options]);
       if (!snapshots) throw new HttpStatusError(404, '/api/events/x/snapshot.jpg');
-      return Buffer.alloc(options.quality === 35 ? 50_000 : 200_000, 1);
+      return Buffer.alloc(options.quality === 35 ? 50_000 : 200_000 + options.quality, 1);
     },
     async getEventThumbnail() {
       return Buffer.alloc(5_000, 1);
@@ -142,15 +143,47 @@ test('event snapshots are fitted too, with the thumbnail when Frigate keeps none
   );
 });
 
-test('a given image is published within the same per-camera limit', async () => {
+test('a finished event too large for Gladys falls back to its thumbnail', async () => {
+  // Frigate serves the stored snapshot of a finished event as is: same size
+  // whatever the step, so the second identical answer stops the steps.
+  const asked = [];
+  const client = {
+    async getEventSnapshot(eventId, options) {
+      asked.push(options);
+      return Buffer.alloc(300_000, 1);
+    },
+    async getEventThumbnail() {
+      return Buffer.alloc(5_000, 1);
+    },
+  };
+  const images = createCameraImages({ getClient: () => client, publish: async () => {} });
+  assert.equal((await images.eventSnapshot('e1')).length, base64Length(5_000));
+  assert.equal(asked.length, 2);
+});
+
+test('an attached image answers onGetImage for a minute, published within the push limit', async () => {
+  let time = 0;
   const published = [];
   const images = createCameraImages({
-    getClient: () => null,
+    getClient: () => fakeClient(() => 1000),
     publish: async (id) => published.push(id),
+    now: () => time,
+  });
+  const device = { external_id: 'ext:frigate:camera:front' };
+  const deviceImages = createDeviceImages({
+    gladys: {},
+    images,
+    cameraOf: () => 'front',
+    isConnected: () => true,
+    logger: { warn() {} },
   });
   for (let i = 0; i < 12; i += 1) {
-    assert.equal(await images.publishImage('cam', 'image/jpg;base64,AA'), true);
+    assert.equal(await images.attach(device.external_id, 'image/jpg;base64,AA'), true);
   }
-  assert.equal(await images.publishImage('cam', 'image/jpg;base64,AA'), false);
+  assert.equal(await images.attach(device.external_id, 'image/jpg;base64,BB'), false);
   assert.equal(published.length, 12);
+  assert.equal(await deviceImages.captureImage(device), 'image/jpg;base64,BB');
+  time += 60_000;
+  assert.equal(images.attached(device.external_id), null);
+  assert.equal((await deviceImages.captureImage(device)).length, base64Length(1000));
 });
