@@ -1,8 +1,8 @@
 # Frigate
 
 > **Status: in development.** The connection, the cameras (image, sensors,
-> switches) and the real-time feed work; the scene triggers come in the next
-> version (the detections are written to the logs for now).
+> switches), the real-time feed and the scenes work; to be tested on more
+> installations before the first stable release.
 
 Bring the cameras of your [Frigate NVR](https://frigate.video) into Gladys
 Assistant: snapshots, motion, detected objects, review alerts, camera
@@ -86,17 +86,55 @@ refused certificate or account stops the feed until you fix it and press
 it is offline (restart), the status says so, and its configuration is read
 again when it comes back.
 
-Detections already go through the rules of the scene triggers to come, and
-are written to the integration logs (**View logs**), one line per incident:
+Each incident is also written to the integration logs (**View logs**):
 `front: person detected, 87 %`, `front: person entered porch, 87 %`,
 `front: review alert, person, car in porch`.
+
+## Scenes
+
+Three triggers, fired **once per incident** (never once per frame), above
+the minimum confidence and outside the cooldown (see Options). False
+positives and objects standing still never fire.
+
+| Trigger                       | Fires when                                                                                    | Filters                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------ |
+| Frigate: new review           | Frigate opens a review item (alert or detection); once more when a detection becomes an alert | camera, severity, object, zone |
+| Frigate: object detected      | Frigate starts tracking an object (person, car…)                                              | camera, object, zone           |
+| Frigate: object enters a zone | A tracked object enters a zone defined in Frigate                                             | camera, zone, object           |
+
+Object and zone are the names used in Frigate (`person`, `car`, `porch`…).
+A review is filtered on its **main** object (the first of the camera's
+tracked objects, in the order of the Frigate configuration) and its first
+zone; all of them are in the `objects` and `zones` variables. Variables
+available in the following actions: `camera`, `camera_name`, `label`,
+`sub_label` (face or plate recognized by Frigate), `zone`, `zones`, `score`
+(%), `severity`, `objects`, `event_id`, `review_id`.
+
+On an alert, the integration pushes a fresh image of the camera **before**
+firing the trigger: the core action "Send a camera image" placed right
+after it sends the alert.
+
+**Action "Frigate: attach the event snapshot"**: publishes the snapshot
+Frigate kept for an event (with or without its bounding box) as the image of
+the camera (the event's camera by default). Use `{{triggerEvent.data.event_id}}`
+as the event id, then "Send a camera image". When Frigate keeps no snapshot
+for the camera, its thumbnail is used.
+
+Example — a photo on your phone when someone comes to the door:
+
+1. Trigger **Frigate: new review**, camera _Front door_, severity _Alert_,
+   object `person`.
+2. Action **Frigate: attach the event snapshot**, event id
+   `{{triggerEvent.data.event_id}}`.
+3. Action **Send a camera image** of _Front door_ to yourself.
 
 ## Options
 
 - **Minimum confidence** (default 70 %): object triggers only fire above it
-  (review alerts carry no score: Frigate's own thresholds apply).
+  (reviews carry no score: Frigate's own thresholds apply).
 - **Trigger cooldown** (default 30 s): at most one trigger per camera and
-  object type (and zone, for zone triggers; per camera for review alerts)
+  object type (and zone, for zone triggers; per camera and severity for
+  reviews)
   and period, so an incident never floods your scenes. False positives and
   objects that stay still (a parked car) never trigger.
 - **Zone occupancy sensors** (off by default): one presence sensor per zone

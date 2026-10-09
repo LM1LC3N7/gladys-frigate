@@ -6,10 +6,12 @@
 //   - object_detected: once per tracked object (event id), when it is a true
 //     positive, not stationary, and its best score reaches `minScore`.
 //   - object_entered_zone: once per tracked object and zone, same filters.
-//   - review_alert: once per review item, when its severity is (or becomes)
-//     "alert": a detection escalated to an alert fires then.
+//   - review_alert (the "new review" trigger, filtered by severity in the
+//     scenes): once per review item, with its severity, plus once more when
+//     a detection is escalated to an alert.
 //   - Cooldown: a transition is dropped when the same one (trigger, camera,
-//     object type, zone) fired less than `cooldownSeconds` ago, so a person
+//     object type, zone; camera and severity for reviews) fired less than
+//     `cooldownSeconds` ago, so a person
 //     walking in and out of the frame does not flood the scenes. A dropped
 //     transition is not fired later: the incident is over for the scenes.
 //   - Reviews carry no score: Frigate's own thresholds already apply.
@@ -29,6 +31,7 @@ export const TRANSITIONS = Object.freeze({
 // Tracked objects / reviews remembered at once; Frigate sends `end` for
 // each, this only bounds the memory when an `end` is lost.
 const MAX_TRACKED = 1000;
+const SEVERITIES = new Set(['alert', 'detection']);
 
 const strings = (value) => (Array.isArray(value) ? value.filter((v) => typeof v === 'string') : []);
 const unique = (values) => [...new Set(values)];
@@ -124,7 +127,12 @@ export function createEventEngine({ minScore = 70, cooldownSeconds = 30, now = D
       }
       state.zones.add(zone);
       if (!coolingDown(`${TRANSITIONS.OBJECT_ENTERED_ZONE}|${base.camera}|${zone}|${base.label}`)) {
-        transitions.push({ kind: TRANSITIONS.OBJECT_ENTERED_ZONE, ...base, zone });
+        transitions.push({
+          kind: TRANSITIONS.OBJECT_ENTERED_ZONE,
+          ...base,
+          zone,
+          zones: unique([...strings(after.current_zones), zone]),
+        });
       }
     }
     return transitions;
@@ -141,21 +149,22 @@ export function createEventEngine({ minScore = 70, cooldownSeconds = 30, now = D
     if (typeof id !== 'string' || typeof after.camera !== 'string') {
       return [];
     }
+    const severity = SEVERITIES.has(after.severity) ? after.severity : null;
+    const seen = reviews.get(id); // undefined, "detection" or "alert"
     if (type === 'end') {
-      const alerted = reviews.has(id);
       reviews.delete(id);
-      // An item can end as an alert without an update in between.
-      if (alerted || after.severity !== 'alert') {
+      // Fired already; or an item seen only at its end still fires once.
+      if (seen) {
         return [];
       }
+    } else if (severity) {
+      boundedSet(reviews, id, seen === 'alert' ? 'alert' : severity);
     }
-    if (after.severity !== 'alert' || reviews.has(id)) {
+    // Once per item, plus once more for a detection escalated to an alert.
+    if (!severity || seen === severity || seen === 'alert') {
       return [];
     }
-    if (type !== 'end') {
-      boundedSet(reviews, id, true);
-    }
-    if (coolingDown(`${TRANSITIONS.REVIEW_ALERT}|${after.camera}`)) {
+    if (coolingDown(`${TRANSITIONS.REVIEW_ALERT}|${after.camera}|${severity}`)) {
       return [];
     }
     const data = after.data ?? {};
@@ -166,7 +175,7 @@ export function createEventEngine({ minScore = 70, cooldownSeconds = 30, now = D
         kind: TRANSITIONS.REVIEW_ALERT,
         camera: after.camera,
         reviewId: id,
-        severity: after.severity,
+        severity,
         label: mainLabel(after.camera, labels),
         zone: zones[0] ?? null,
         objects: labels,

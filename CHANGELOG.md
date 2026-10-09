@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Scene triggers (milestone 5): "new review" (alert or detection, once more
+  when a detection becomes an alert), "object detected" and "object enters
+  a zone", with the flat data the manifest declares (camera device, Frigate
+  camera name, object, sub label, zone, zones, score, objects, severity,
+  event and review ids). On an alert, a fresh camera image is pushed before
+  the trigger, so "Send a camera image" right after it sends the alert.
+- Scene action "attach the event snapshot": the snapshot of a Frigate event
+  (bounding box optional, resized by Frigate under 150 KB; its thumbnail
+  when Frigate keeps no snapshot) becomes the image of the event's camera,
+  or of the chosen one.
+
 - Camera devices complete (milestone 4): camera enabled (Frigate's own
   on/off), switches for object detection, recordings, snapshots and audio
   detection (the last two only when enabled in the Frigate file), motion,

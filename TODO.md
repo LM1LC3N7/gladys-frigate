@@ -30,7 +30,7 @@ up to date at the end of every milestone (tick the boxes, move decisions in).
       spun for minutes and showed nothing). See "Milestone 4" below.
 - [x] **Milestone 3 — mqttClient (+ WebSocket fallback) + eventEngine**
 - [x] **Milestone 4, part 2 — Gladys adapter: states, commands, transports**
-- [ ] Milestone 5 — scene triggers and scene action
+- [x] **Milestone 5 — scene triggers and scene action**
 - [ ] Milestone 6 — docs (install, security, dedicated account, MQTT ACL,
       live video via go2rtc), CHANGELOG, first release
 
@@ -245,7 +245,8 @@ image pushed. Original plan:
 - [x] `commands.js`: `onSetValue` → MQTT/WS `set` topic.
 - [x] `images.js`: `onGetImage` → `latest.jpg` under 150 KB (resized by
       Frigate, see above); ≤ 12 images/min per camera.
-- [ ] Push the alert snapshot (milestone 5 / review alerts).
+- [x] Push the alert image: a fresh camera image before a review alert's
+      scene event (milestone 5).
 - [x] `publishTransports`: `local`; `unreachable` / `degraded` from the
       debounced `status/<role>`; `setConnectionStatus` driven by
       `<prefix>/available` and the HTTP state, with the config warnings of
@@ -267,13 +268,21 @@ image pushed. Original plan:
       without restart since 0.17) and full resync when `available` comes
       back `online` or MQTT reconnects. Clean shutdown, no orphan timer.
 
-## Milestone 5 — scene triggers and action
+## Milestone 5 — scene triggers and action (done)
 
-- [ ] `sceneEvents.js`: `publishSceneEvent` with flat data (≤ 30 keys,
+Done: `src/gladys/sceneEvents.js` (`toSceneEvent`, `createSceneEvents` with
+a 250/min safety net, `createSnapshotAction`), image of the camera pushed
+before an alert's event, event snapshot fitted by Frigate (thumbnail when no
+snapshot). Decision: the frozen `review_alert` trigger is the manifest's
+"new review" with a severity filter, so it fires for detections too, and
+once more on escalation to an alert (cooldown per camera and severity).
+A test pins every event key against the manifest variables.
+
+- [x] `sceneEvents.js`: `publishSceneEvent` with flat data (≤ 30 keys,
       strings ≤ 1000 chars), `camera` = Gladys device external id, plus
       `camera_name`, `label`, `sub_label`, `zone`, `zones`, `score` (0–100),
       `event_id`, `review_id`, `severity`, `objects`; ≤ 300 events/min.
-- [ ] `attach_event_snapshot` (`onSceneAction`): fetch
+- [x] `attach_event_snapshot` (`onSceneAction`): fetch
       `/api/events/<id>/snapshot.jpg` (bbox per field), resize under 150 KB,
       `publishCameraImage` on the chosen camera or the event's camera; the
       scene then chains the core action "send the camera image".

@@ -14,8 +14,9 @@ import { createDeviceSync } from './src/gladys/deviceSync.js';
 import { cameraNameOfDevice, publishDiscovery } from './src/gladys/discovery.js';
 import { createFrigateSession } from './src/gladys/frigateSession.js';
 import { createCameraImages, createDeviceImages } from './src/gladys/images.js';
-import { MANIFEST_ACTIONS } from './src/gladys/keys.js';
+import { MANIFEST_ACTIONS, SCENE_ACTIONS } from './src/gladys/keys.js';
 import { describeTransition } from './src/gladys/messages.js';
+import { createSceneEvents, createSnapshotAction } from './src/gladys/sceneEvents.js';
 
 // /data is the only writable location of the container (see the Dockerfile).
 const trustStore = new TrustStore({ filePath: '/data/tls-trust.json', logger });
@@ -25,12 +26,13 @@ const zoneSensors = () => session.config?.zone_sensors === true;
 const discover = (capabilities) =>
   publishDiscovery(gladys, capabilities, { zoneSensors: zoneSensors() });
 
+const cameraImages = createCameraImages({
+  getClient: () => session.client,
+  publish: (externalId, image) => gladys.publishCameraImage(externalId, image),
+});
 const deviceImages = createDeviceImages({
   gladys,
-  images: createCameraImages({
-    getClient: () => session.client,
-    publish: (externalId, image) => gladys.publishCameraImage(externalId, image),
-  }),
+  images: cameraImages,
   cameraOf: cameraNameOfDevice,
   isConnected: () => Boolean(session.client),
   logger,
@@ -44,6 +46,15 @@ const deviceSync = createDeviceSync({
   images: deviceImages,
   logger,
 });
+const sceneEvents = createSceneEvents({
+  gladys,
+  logger,
+  // The alert image first, for a scene that sends the camera image next.
+  beforeAlert: async (camera) => {
+    const device = gladys.devices.find((d) => cameraNameOfDevice(gladys, d) === camera);
+    if (device) await deviceImages.pushImage(device);
+  },
+});
 const session = createFrigateSession({
   gladys,
   trustStore,
@@ -53,8 +64,10 @@ const session = createFrigateSession({
   onFrigateStatus: (up) => deviceSync.frigateUp(up),
   onFeedStatus: (status) => deviceSync.feedStatus(status),
   onMessage: (message) => deviceSync.handleMessage(message),
-  // Logged until the scene triggers use them (milestone 5).
-  onTransition: (transition) => logger.info(describeTransition(transition)),
+  onTransition: (transition) => {
+    logger.info(describeTransition(transition));
+    sceneEvents.handle(transition);
+  },
 });
 
 const applyConfig = (raw = {}) => session.apply(normalizeConfig(raw), raw);
@@ -73,6 +86,11 @@ gladys.onPoll((device) => deviceSync.poll(device));
 gladys.onDeviceCreated((device) => deviceSync.deviceCreated(device));
 gladys.onGetImage((device) => deviceImages.captureImage(device));
 gladys.onSetValue((device, feature, value) => deviceSync.setValue(device, feature, value));
+
+gladys.onSceneAction(
+  SCENE_ACTIONS.ATTACH_EVENT_SNAPSHOT,
+  createSnapshotAction({ gladys, images: cameraImages, getClient: () => session.client }),
+);
 
 gladys.onAction(MANIFEST_ACTIONS.TEST_CONNECTION, () => session.testConnection());
 gladys.onAction(MANIFEST_ACTIONS.REFRESH_CAMERAS, () => session.refreshCameras());

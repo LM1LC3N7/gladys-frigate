@@ -96,6 +96,8 @@ test('each zone entered fires once, with the score threshold', () => {
   e.handle(event('update', { entered_zones: ['porch'], current_zones: ['porch'] }));
   e.handle(event('update', { entered_zones: ['porch'] }));
   e.handle(event('update', { entered_zones: ['porch', 'driveway'] }));
+  assert.deepEqual(e.out[1].zones, ['porch'], 'the zones the object is in');
+  assert.deepEqual(e.out[2].zones, ['driveway'], 'at least the zone entered');
   assert.deepEqual(
     e.out.map((t) => [t.kind, t.zone ?? null]),
     [
@@ -129,10 +131,10 @@ test('sub labels and -verified labels are flattened', () => {
   assert.equal(e.out[0].subLabel, 'Alice');
 });
 
-test('review_alert: once per review, including a detection escalated to an alert', () => {
+test('review: once when it opens, once more when a detection becomes an alert', () => {
   const e = engine({ cooldownSeconds: 0 });
   e.handle(review('new', { id: 'r1', severity: 'detection' }));
-  assert.deepEqual(e.out, []);
+  e.handle(review('update', { id: 'r1', severity: 'detection' }));
   e.handle(
     review('update', {
       id: 'r1',
@@ -145,9 +147,13 @@ test('review_alert: once per review, including a detection escalated to an alert
     }),
   );
   e.handle(review('update', { id: 'r1' }));
+  e.handle(review('update', { id: 'r1', severity: 'detection' })); // never goes back
   e.handle(review('end', { id: 'r1' }));
-  assert.equal(e.out.length, 1);
-  assert.deepEqual(e.out[0], {
+  assert.deepEqual(
+    e.out.map((t) => t.severity),
+    ['detection', 'alert'],
+  );
+  assert.deepEqual(e.out[1], {
     kind: 'review_alert',
     camera: 'front',
     reviewId: 'r1',
@@ -161,26 +167,31 @@ test('review_alert: once per review, including a detection escalated to an alert
   });
 });
 
-test('an alert seen only at its end still fires; detections never do', () => {
+test('a review seen only at its end still fires once; unknown severities never', () => {
   const e = engine({ cooldownSeconds: 0 });
   e.handle(review('end', { id: 'r2' }));
   e.handle(review('end', { id: 'r3', severity: 'detection' }));
+  e.handle(review('new', { id: 'r4', severity: 'significant_motion' }));
   assert.deepEqual(
-    e.out.map((t) => t.reviewId),
-    ['r2'],
+    e.out.map((t) => [t.reviewId, t.severity]),
+    [
+      ['r2', 'alert'],
+      ['r3', 'detection'],
+    ],
   );
 });
 
-test('review cooldown is per camera', () => {
+test('review cooldown is per camera and severity', () => {
   const e = engine({ cooldownSeconds: 60 });
   e.handle(review('new', { id: 'r1' }));
   e.handle(review('new', { id: 'r2' }));
   e.handle(review('new', { id: 'r3', camera: 'garage' }));
+  e.handle(review('new', { id: 'r5', severity: 'detection' }));
   e.advance(61);
   e.handle(review('new', { id: 'r4' }));
   assert.deepEqual(
     e.out.map((t) => t.reviewId),
-    ['r1', 'r3', 'r4'],
+    ['r1', 'r3', 'r5', 'r4'],
   );
 });
 

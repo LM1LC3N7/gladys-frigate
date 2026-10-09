@@ -1,9 +1,8 @@
 # Frigate
 
 > **Statut : en développement.** La connexion, les caméras (image, capteurs,
-> interrupteurs) et le flux temps réel fonctionnent ; les déclencheurs de
-> scène arrivent dans la prochaine version (les détections sont écrites dans
-> les logs pour l'instant).
+> interrupteurs), le flux temps réel et les scènes fonctionnent ; à éprouver
+> sur davantage d'installations avant la première version stable.
 
 Intégrez les caméras de votre [Frigate NVR](https://frigate.video) dans Gladys
 Assistant : images, mouvement, objets détectés, alertes de revue,
@@ -92,19 +91,56 @@ enregistriez la configuration). Quand Frigate s'annonce hors ligne
 (redémarrage), le statut le signale, et sa configuration est relue à son
 retour.
 
-Les détections passent déjà par les règles des futurs déclencheurs de scène
-et sont écrites dans les logs de l'intégration (**Voir les logs**), une ligne
-par incident : `front: person detected, 87 %`, `front: person entered porch,
+Chaque incident est aussi écrit dans les logs de l'intégration (**Voir les
+logs**) : `front: person detected, 87 %`, `front: person entered porch,
 87 %`, `front: review alert, person, car in porch`.
+
+## Scènes
+
+Trois déclencheurs, **une fois par incident** (jamais une fois par image),
+au-dessus de la confiance minimale et hors cooldown (voir Options). Les faux
+positifs et les objets immobiles ne déclenchent jamais.
+
+| Déclencheur                         | Se déclenche quand                                                                                      | Filtres                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Frigate : nouvelle revue            | Frigate ouvre une revue (alerte ou détection) ; une fois de plus quand une détection devient une alerte | caméra, sévérité, objet, zone |
+| Frigate : objet détecté             | Frigate commence à suivre un objet (personne, voiture…)                                                 | caméra, objet, zone           |
+| Frigate : objet entre dans une zone | Un objet suivi entre dans une zone définie dans Frigate                                                 | caméra, zone, objet           |
+
+L'objet et la zone sont les noms utilisés dans Frigate (`person`, `car`,
+`porch`…). Une revue est filtrée sur son objet **principal** (le premier des
+objets suivis par la caméra, dans l'ordre de la configuration Frigate) et sa
+première zone ; tous sont dans les variables `objects` et `zones`. Variables
+disponibles dans les actions suivantes : `camera`, `camera_name`, `label`,
+`sub_label` (visage ou plaque reconnus par Frigate), `zone`, `zones`, `score`
+(%), `severity`, `objects`, `event_id`, `review_id`.
+
+Sur une alerte, l'intégration publie une image fraîche de la caméra **avant**
+de déclencher : l'action « Envoyer une image de caméra » placée juste après
+envoie bien l'alerte.
+
+**Action « Frigate : joindre l'image de l'événement »** : publie l'instantané
+que Frigate a gardé pour un événement (avec ou sans son cadre de détection)
+comme image de la caméra (celle de l'événement par défaut). Utilisez
+`{{triggerEvent.data.event_id}}` comme identifiant, puis « Envoyer une image de caméra ». Quand Frigate ne garde pas d'instantané pour la caméra, sa
+miniature est utilisée.
+
+Exemple — une photo sur votre téléphone quand quelqu'un vient à la porte :
+
+1. Déclencheur **Frigate : nouvelle revue**, caméra _Porte d'entrée_,
+   sévérité _Alerte_, objet `person`.
+2. Action **Frigate : joindre l'image de l'événement**, identifiant
+   `{{triggerEvent.data.event_id}}`.
+3. Action **Envoyer une image de caméra** _Porte d'entrée_ à vous-même.
 
 ## Options
 
 - **Confiance minimale** (70 % par défaut) : les déclencheurs d'objets ne se
-  déclenchent qu'au-dessus (les alertes de revue n'ont pas de score : les
-  seuils de Frigate s'appliquent).
+  déclenchent qu'au-dessus (les revues n'ont pas de score : les seuils de
+  Frigate s'appliquent).
 - **Cooldown des déclencheurs** (30 s par défaut) : au plus un déclenchement
   par caméra et type d'objet (et par zone pour les déclencheurs de zone ; par
-  caméra pour les alertes de revue) et par période, pour qu'un incident
+  caméra et sévérité pour les revues) et par période, pour qu'un incident
   n'inonde pas vos scènes. Les faux positifs et les objets immobiles (une
   voiture garée) ne déclenchent jamais.
 - **Capteurs d'occupation par zone** (désactivés par défaut) : un capteur de

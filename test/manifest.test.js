@@ -131,3 +131,19 @@ test('index.js answers the scan and the camera requests of Gladys', async () => 
     assert.match(index, new RegExp(`gladys\\.${handler}\\(`), `${handler} is registered`);
   }
 });
+
+test('every scene action has a handler, every trigger is published (index.js)', async () => {
+  const index = await readFile(new URL('../index.js', import.meta.url), 'utf8');
+  const scenes = await readFile(new URL('../src/gladys/sceneEvents.js', import.meta.url), 'utf8');
+  for (const [name, key] of Object.entries(SCENE_ACTIONS)) {
+    assert.ok(manifest.scene_actions.some((action) => action.key === key));
+    assert.match(
+      index,
+      new RegExp(`onSceneAction\\(\\s*SCENE_ACTIONS\\.${name}\\b`),
+      `${key} is handled`,
+    );
+  }
+  for (const name of Object.keys(SCENE_TRIGGERS)) {
+    assert.match(scenes, new RegExp(`SCENE_TRIGGERS\\.${name}\\b`), `${name} is published`);
+  }
+});

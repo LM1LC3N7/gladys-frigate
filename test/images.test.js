@@ -115,3 +115,42 @@ test('pushes go to Gladys, at most 12 per minute and per camera', async () => {
   time += 60_000;
   assert.equal(await images.push('ext:frigate:camera:front', 'front'), true);
 });
+
+test('event snapshots are fitted too, with the thumbnail when Frigate keeps none', async () => {
+  const { HttpStatusError } = await import('../src/frigate/errors.js');
+  const asked = [];
+  let snapshots = true;
+  const client = {
+    async getEventSnapshot(eventId, options) {
+      asked.push([eventId, options]);
+      if (!snapshots) throw new HttpStatusError(404, '/api/events/x/snapshot.jpg');
+      return Buffer.alloc(options.quality === 35 ? 50_000 : 200_000, 1);
+    },
+    async getEventThumbnail() {
+      return Buffer.alloc(5_000, 1);
+    },
+  };
+  const images = createCameraImages({ getClient: () => client, publish: async () => {} });
+  const image = await images.eventSnapshot('e1', { bbox: false });
+  assert.ok(image.length <= MAX_IMAGE_LENGTH);
+  assert.deepEqual(asked[0], ['e1', { height: 720, quality: 70, bbox: false }]);
+  assert.equal(asked.length, 3, '720p at quality 70, 50, then 35');
+  snapshots = false;
+  assert.equal(
+    (await images.eventSnapshot('e2')).length,
+    IMAGE_PREFIX.length + Math.ceil(5000 / 3) * 4,
+  );
+});
+
+test('a given image is published within the same per-camera limit', async () => {
+  const published = [];
+  const images = createCameraImages({
+    getClient: () => null,
+    publish: async (id) => published.push(id),
+  });
+  for (let i = 0; i < 12; i += 1) {
+    assert.equal(await images.publishImage('cam', 'image/jpg;base64,AA'), true);
+  }
+  assert.equal(await images.publishImage('cam', 'image/jpg;base64,AA'), false);
+  assert.equal(published.length, 12);
+});
