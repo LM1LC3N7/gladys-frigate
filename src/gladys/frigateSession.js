@@ -16,7 +16,15 @@
 //     messages are typed (src/frigate/topics.js), turned into transitions
 //     (src/frigate/eventEngine.js) handed to onTransition, and its state is
 //     part of the connection status. When Frigate announces it is back
-//     online, its configuration is read again (cameras may have changed).
+//     online, its configuration is read again (cameras may have changed),
+//     at most once per minute.
+//   - MQTT retains no object count: when the feed connects and when Frigate
+//     is back online, the current objects are read once over the Frigate
+//     WebSocket (`camera_activity`), so a count lost meanwhile (an object
+//     that left) does not leave a presence stuck.
+//   - A Frigate dropping its broker connection again and again (three
+//     "offline" within five minutes) is reported: its messages are lost,
+//     and the usual cause is another MQTT client using its client_id.
 //
 // Thin adapter: the Frigate logic lives in src/frigate/.
 // -----------------------------------------------------------------------------
@@ -29,11 +37,18 @@ import { createFrigateClient } from '../frigate/httpClient.js';
 import { createMqttFeed } from '../frigate/mqttClient.js';
 import { probeMqtt } from '../frigate/mqttProbe.js';
 import { parseMessage } from '../frigate/topics.js';
-import { createWsFeed } from '../frigate/wsClient.js';
+import { createWsFeed, readCameraActivity } from '../frigate/wsClient.js';
 import { describeAuth, describeError, describeFeed, describeTls } from './messages.js';
 import { composeMessage, describeConfig } from './status.js';
 
 const RETRY_DELAY_MS = 60_000;
+const RESYNC_DELAY_MS = 60_000;
+const FLAP_WINDOW_MS = 5 * 60_000;
+const FLAP_COUNT = 3;
+const FLAPPING = {
+  en: 'Frigate keeps dropping its MQTT connection: its messages are lost. Another MQTT client probably uses its client_id (mqtt.client_id, "frigate" by default).',
+  fr: 'Frigate perd sans cesse sa connexion MQTT : ses messages sont perdus. Un autre client MQTT utilise sans doute son client_id (mqtt.client_id, « frigate » par défaut).',
+};
 const UNSAVED_PINS = {
   en: 'The pinned certificates cannot be saved in /data: after a restart, the next connection trusts again the certificate it is served.',
   fr: 'Les certificats épinglés ne peuvent pas être enregistrés dans /data : après un redémarrage, la connexion suivante approuve de nouveau le certificat présenté.',
@@ -102,6 +117,10 @@ export function createFeed({ config, client, trustStore }) {
  * @param {(message: object) => void} [options.onMessage] every typed message
  * @param {(status: { state: string, error: Error | null }) => void} [options.onFeedStatus]
  * @param {(up: boolean) => void} [options.onFrigateStatus] HTTP read result
+ * @param {(flapping: boolean) => void} [options.onFrigateFlapping]
+ * @param {Function} [options.activityReader] readCameraActivity (tests)
+ * @param {number} [options.resyncDelayMs] minimum delay between two re-reads
+ * @param {() => number} [options.now]
  */
 export function createFrigateSession({
   gladys,
@@ -116,6 +135,10 @@ export function createFrigateSession({
   onMessage = () => {},
   onFeedStatus = () => {},
   onFrigateStatus = () => {},
+  onFrigateFlapping = () => {},
+  activityReader = readCameraActivity,
+  resyncDelayMs = RESYNC_DELAY_MS,
+  now = Date.now,
 }) {
   let config = null;
   let raw = {};
@@ -130,6 +153,12 @@ export function createFrigateSession({
   let known = { cameras: new Set(), zones: new Set() };
   let engine = createEventEngine();
   let lastStatus = null;
+  let lastRead = 0; // time of the last successful read of Frigate
+  let resyncTimer = null;
+  let offlineTimes = []; // "offline" announcements within FLAP_WINDOW_MS
+  let flapping = false;
+  let flapTimer = null;
+  let activityError = null; // last camera_activity failure logged
 
   /** Publishes the status, unless it is the one already shown. */
   function setStatus(connected, message) {
@@ -152,6 +181,84 @@ export function createFrigateSession({
     return setStatus(feed?.status.state !== 'failed', connectedMessage());
   }
 
+  function setFlapping(value) {
+    if (flapping === value) {
+      return;
+    }
+    flapping = value;
+    if (value) {
+      logger.warn(FLAPPING.en);
+    } else {
+      logger.info('Frigate keeps its MQTT connection again');
+    }
+    onFrigateFlapping(value);
+    publishConnected();
+  }
+
+  function stopFlapping() {
+    clearTimeout(flapTimer);
+    flapTimer = null;
+    offlineTimes = [];
+    setFlapping(false);
+  }
+
+  /** Frigate's LWT fired (its broker connection dropped) while ours holds. */
+  function noteOffline() {
+    const time = now();
+    offlineTimes = offlineTimes.filter((at) => time - at < FLAP_WINDOW_MS);
+    offlineTimes.push(time);
+    if (offlineTimes.length >= FLAP_COUNT) {
+      setFlapping(true);
+    }
+    // Five quiet minutes end it.
+    clearTimeout(flapTimer);
+    flapTimer = setTimeout(stopFlapping, FLAP_WINDOW_MS);
+    flapTimer.unref?.();
+  }
+
+  /** The current objects of every camera, over the Frigate WebSocket (MQTT mode). */
+  async function refreshActivity(currentGeneration) {
+    if (!capabilities || !client || feed?.mode !== 'mqtt') {
+      return;
+    }
+    try {
+      const cameras = await activityReader({ client });
+      if (currentGeneration === generation) {
+        activityError = null;
+        route('camera_activity', cameras);
+      }
+    } catch (err) {
+      if (activityError !== err.message) {
+        activityError = err.message;
+        logger.warn(`Could not read the current objects from Frigate: ${err.message}`);
+      }
+    }
+  }
+
+  /** Read Frigate again, at most once per resyncDelayMs (Frigate may flap). */
+  function resync() {
+    if (resyncTimer) {
+      return;
+    }
+    const currentGeneration = generation;
+    const run = () => {
+      resyncTimer = null;
+      if (currentGeneration !== generation) {
+        return;
+      }
+      check(currentGeneration)
+        .then(() => refreshActivity(currentGeneration))
+        .catch(() => {});
+    };
+    const wait = lastRead + resyncDelayMs - now();
+    if (wait <= 0) {
+      run();
+      return;
+    }
+    resyncTimer = setTimeout(run, wait);
+    resyncTimer.unref?.();
+  }
+
   function route(topic, payload) {
     const message = parseMessage(topic, payload, known);
     if (!message) {
@@ -161,12 +268,20 @@ export function createFrigateSession({
       const wasOffline = frigateOnline === false;
       if (frigateOnline !== message.online) {
         frigateOnline = message.online;
-        logger.info(`Frigate announces it is ${message.state}`);
+        // While it flaps, one line per drop would flood the logs.
+        if (!flapping) {
+          logger.info(`Frigate announces it is ${message.state}`);
+        }
+        // "stopped" (0.18) is a clean stop; "offline" is the broker's LWT.
+        if (message.state === 'offline' && feed?.status.state === 'connected') {
+          noteOffline();
+        }
         publishConnected();
       }
       if (message.online && wasOffline) {
-        // Back from a restart: its configuration may have changed.
-        check(generation).catch(() => {});
+        // Back from a restart: its configuration may have changed, and the
+        // counts published while it was away are lost.
+        resync();
       }
     }
     for (const transition of engine.handle(message)) {
@@ -192,6 +307,10 @@ export function createFrigateSession({
       logger[log](`Real-time feed ${state}${error ? `: ${error.message}` : ''}`);
       onFeedStatus(status);
       publishConnected();
+      if (state === 'connected') {
+        // MQTT retains no object count: read the current ones.
+        refreshActivity(currentGeneration);
+      }
     });
     onFeedStatus(created.status);
     created.on('message', (topic, payload) => {
@@ -205,6 +324,9 @@ export function createFrigateSession({
     const old = feed;
     feed = null;
     frigateOnline = null;
+    clearTimeout(resyncTimer);
+    resyncTimer = null;
+    stopFlapping();
     if (old) {
       onFeedStatus({ state: null, error: null });
     }
@@ -238,7 +360,9 @@ export function createFrigateSession({
         en: `Connected to Frigate ${version.raw}, ${summary.en}.`,
         fr: `Connecté à Frigate ${version.raw}, ${summary.fr}.`,
       },
-      feed ? describeFeed(feed, frigateOnline) : null,
+      // While it flaps, "offline" would change the status every few seconds.
+      feed ? describeFeed(feed, flapping ? null : frigateOnline) : null,
+      flapping ? FLAPPING : null,
       ...configWarnings(config),
       trustStore.saveError ? UNSAVED_PINS : null,
     ]);
@@ -253,6 +377,7 @@ export function createFrigateSession({
         return;
       }
       capabilities = result;
+      lastRead = now();
       known = {
         cameras: new Set(result.cameras.map((camera) => camera.name)),
         zones: new Set(result.cameras.flatMap((camera) => camera.zones.map((zone) => zone.name))),

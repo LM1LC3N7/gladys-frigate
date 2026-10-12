@@ -1,11 +1,13 @@
 // -----------------------------------------------------------------------------
 // Transport badge of each camera device (gladys.publishTransports).
 //
-//   unreachable  Frigate does not answer, announces it is offline, or the
-//                camera's detection stream has been offline for 30 s
+//   unreachable  Frigate does not answer, has announced it is offline for
+//                30 s, or the camera's detection stream has been offline
+//                for 30 s
 //   local + degraded
-//                the recording stream has been offline for 30 s, or the
-//                real-time feed is interrupted (states may be outdated)
+//                the recording stream has been offline for 30 s, the
+//                real-time feed is interrupted, or Frigate keeps dropping its
+//                broker connection (states may be outdated)
 //   local        otherwise
 //
 // Gladys only takes a message with `degraded`: an unreachable camera has no
@@ -28,6 +30,10 @@ const MESSAGES = {
     en: 'Real-time feed interrupted: the states may be outdated',
     fr: 'Flux temps réel interrompu : les états peuvent être périmés',
   },
+  frigateFlapping: {
+    en: 'Frigate keeps dropping its MQTT connection: the states may be outdated',
+    fr: 'Frigate perd sans cesse sa connexion MQTT : les états peuvent être périmés',
+  },
 };
 
 /**
@@ -40,11 +46,13 @@ const MESSAGES = {
 export function createTransportTracker({ gladys, createdCameras, logger, debounceMs = 30_000 }) {
   const state = {
     frigateUp: null, // HTTP read succeeded (null = unknown)
-    frigateOnline: null, // Frigate's `available`
+    frigateOnline: null, // Frigate's `available`, false once debounced
+    frigateFlapping: false,
     feed: null, // feed state, null = no feed
   };
   const offlineRoles = new Map(); // `${camera}|${role}` -> { confirmed, timer }
   const published = new Map(); // device external id -> serialized transport
+  let offlineTimer = null; // Frigate announced offline, not confirmed yet
   let scheduled = false;
   let closed = false;
 
@@ -65,6 +73,9 @@ export function createTransportTracker({ gladys, createdCameras, logger, debounc
     // "connecting" is the normal start: only a lost feed is degraded.
     if (state.feed === 'disconnected' || state.feed === 'failed') {
       return { transport: 'local', degraded: true, message: MESSAGES.feedDown };
+    }
+    if (state.frigateFlapping) {
+      return { transport: 'local', degraded: true, message: MESSAGES.frigateFlapping };
     }
     return { transport: 'local' };
   }
@@ -129,9 +140,30 @@ export function createTransportTracker({ gladys, createdCameras, logger, debounc
       state.frigateUp = up;
       update();
     },
-    /** Frigate's `available` announcement. */
+    /** Frigate's `available` announcement; offline counts once it lasted debounceMs. */
     setFrigateOnline(online) {
-      state.frigateOnline = online;
+      if (online) {
+        clearTimeout(offlineTimer);
+        offlineTimer = null;
+        if (state.frigateOnline !== true) {
+          state.frigateOnline = true;
+          update();
+        }
+        return;
+      }
+      if (offlineTimer || state.frigateOnline === false) {
+        return;
+      }
+      offlineTimer = setTimeout(() => {
+        offlineTimer = null;
+        state.frigateOnline = false;
+        update();
+      }, debounceMs);
+      offlineTimer.unref?.();
+    },
+    /** Frigate keeps dropping its broker connection (src/gladys/frigateSession.js). */
+    setFrigateFlapping(flapping) {
+      state.frigateFlapping = flapping;
       update();
     },
     /** Feed state ('connected', 'disconnected'…), null when there is none. */
@@ -156,6 +188,7 @@ export function createTransportTracker({ gladys, createdCameras, logger, debounc
     },
     close() {
       closed = true;
+      clearTimeout(offlineTimer);
       for (const entry of offlineRoles.values()) clearTimeout(entry.timer);
       offlineRoles.clear();
     },

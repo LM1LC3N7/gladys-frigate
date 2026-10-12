@@ -65,6 +65,7 @@ const session = createFrigateSession({
   // Every successful read of Frigate refreshes the Discover tab.
   onConnected: discover,
   onFrigateStatus: (up) => deviceSync.frigateUp(up),
+  onFrigateFlapping: (flapping) => deviceSync.frigateFlapping(flapping),
   onFeedStatus: (status) => deviceSync.feedStatus(status),
   onMessage: (message) => deviceSync.handleMessage(message),
   onTransition: (transition) => {

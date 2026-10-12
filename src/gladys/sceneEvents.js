@@ -18,6 +18,7 @@
 import { TRANSITIONS } from '../frigate/eventEngine.js';
 import { HttpStatusError } from '../frigate/errors.js';
 import { DEVICE_TYPE } from './discovery.js';
+import { MAX_STORED_IMAGE_LENGTH } from './images.js';
 import { SCENE_TRIGGERS } from './keys.js';
 
 const MAX_TEXT = 1000;
@@ -165,9 +166,18 @@ export function createSnapshotAction({ gladys, images, getClient }) {
       }
       device = gladys.externalIds(DEVICE_TYPE, event.camera).device;
     }
-    const image = await images.eventSnapshot(eventId, { bbox: fields.bounding_box !== false });
+    const bbox = fields.bounding_box !== false;
+    const image = await images.eventSnapshot(eventId, { bbox });
+    // The device keeps a smaller copy (see MAX_STORED_IMAGE_LENGTH); without
+    // one the dashboard keeps its image.
+    const stored =
+      image.length <= MAX_STORED_IMAGE_LENGTH
+        ? image
+        : await images
+            .eventSnapshot(eventId, { bbox, maxLength: MAX_STORED_IMAGE_LENGTH })
+            .catch(() => null);
     // Over the Gladys image rate limit the dashboard keeps its image, but the
     // snapshot is still what "send the camera image" gets: not a failure.
-    await images.attach(device, image);
+    await images.attach(device, image, stored);
   };
 }

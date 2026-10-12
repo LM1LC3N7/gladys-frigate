@@ -2,11 +2,16 @@
 // Camera images in the format Gladys expects.
 //
 // Gladys takes `image/jpg;base64,...` strings of at most 150 KB, the prefix
-// included. Frigate resizes and re-encodes its latest frame on demand
+// included. The image published on the device (stored by Gladys, shown on
+// the dashboard) is kept under 60 KB: Gladys' device screen saves a device by
+// sending it back whole, image included, within a 100 KB request limit, so
+// a bigger stored image makes renaming the device or changing its room fail.
+// The live image (onGetImage: live view, "send a camera image") keeps the
+// 150 KB. Frigate resizes and re-encodes its latest frame on demand
 // (`height` and `quality` of /api/<camera>/latest.jpg), so the container
 // decodes nothing: we ask for a height and a quality, then step them down
-// until the image fits. The step that fitted is remembered per camera, so a
-// capture usually costs one request.
+// until the image fits. The step that fitted is remembered per camera and
+// size limit, so a capture usually costs one request.
 //
 // Captures are shared: a capture already running for a camera is joined, and
 // an image younger than 2 s is reused (a dashboard opened on several screens
@@ -22,6 +27,7 @@
 import { FrigateError, HttpStatusError } from '../frigate/errors.js';
 
 export const MAX_IMAGE_LENGTH = 150 * 1024;
+export const MAX_STORED_IMAGE_LENGTH = 60 * 1024;
 export const IMAGE_PREFIX = 'image/jpg;base64,';
 const MAX_PUSHES_PER_MINUTE = 12;
 const FRESH_MS = 2_000;
@@ -39,8 +45,10 @@ export function toGladysImage(jpeg) {
 }
 
 export class ImageTooLargeError extends FrigateError {
-  constructor(what) {
-    super(`The image of ${what} stays above 150 KB even at the smallest size`);
+  constructor(what, maxLength = MAX_IMAGE_LENGTH) {
+    super(
+      `The image of ${what} stays above ${Math.round(maxLength / 1024)} KB even at the smallest size`,
+    );
     this.name = 'ImageTooLargeError';
   }
 }
@@ -61,45 +69,46 @@ export class NotConnectedError extends FrigateError {
  * @param {() => number} [options.now]
  */
 export function createCameraImages({ getClient, publish, now = Date.now }) {
-  const startStep = new Map(); // camera -> index in IMAGE_STEPS
-  const recent = new Map(); // camera -> { at, image }
-  const inFlight = new Map(); // camera -> Promise<string>
+  // Keyed by `${camera}|${maxLength}`: the stored and the live images.
+  const startStep = new Map(); // key -> index in IMAGE_STEPS
+  const recent = new Map(); // key -> { at, image }
+  const inFlight = new Map(); // key -> Promise<string>
   const pushWindows = new Map(); // device external id -> { count, resetAt }
   const attachedImages = new Map(); // device external id -> { image, until }
 
   /**
-   * The first step `fetchStep` serves under the Gladys limit, starting from
-   * the one remembered for `memoKey` (null: from the best step).
+   * The first step `fetchStep` serves under `maxLength`, starting from the
+   * one remembered for `memoKey` (null: from the best step).
    */
-  async function fitted(fetchStep, memoKey, what) {
+  async function fitted(fetchStep, memoKey, what, maxLength) {
     let index = (memoKey && startStep.get(memoKey)) ?? 0;
     for (; index < IMAGE_STEPS.length; index += 1) {
       const image = toGladysImage(await fetchStep(IMAGE_STEPS[index]));
-      if (image.length <= MAX_IMAGE_LENGTH) {
+      if (image.length <= maxLength) {
         // Well under the limit: try one step better next time (the scene
         // may have become simpler, at night for instance).
-        const roomy = image.length < MAX_IMAGE_LENGTH / 2;
+        const roomy = image.length < maxLength / 2;
         if (memoKey) startStep.set(memoKey, roomy ? Math.max(0, index - 1) : index);
         return image;
       }
     }
     if (memoKey) startStep.delete(memoKey);
-    throw new ImageTooLargeError(what);
+    throw new ImageTooLargeError(what, maxLength);
   }
 
-  const fetchFitting = (client, camera) =>
-    fitted((step) => client.getLatestJpeg(camera, step), camera, `camera "${camera}"`);
-
   /**
-   * A fresh image of a camera (`image/jpg;base64,...`, at most 150 KB).
+   * A fresh image of a camera (`image/jpg;base64,...`).
    * @param {string} camera Frigate camera name
+   * @param {{ maxLength?: number }} [options] MAX_STORED_IMAGE_LENGTH for
+   *   the image published on the device
    */
-  function capture(camera) {
-    const cached = recent.get(camera);
+  function capture(camera, { maxLength = MAX_IMAGE_LENGTH } = {}) {
+    const key = `${camera}|${maxLength}`;
+    const cached = recent.get(key);
     if (cached && now() - cached.at < FRESH_MS) {
       return Promise.resolve(cached.image);
     }
-    const running = inFlight.get(camera);
+    const running = inFlight.get(key);
     if (running) {
       return running;
     }
@@ -107,13 +116,18 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
     if (!client) {
       return Promise.reject(new NotConnectedError());
     }
-    const promise = fetchFitting(client, camera)
+    const promise = fitted(
+      (step) => client.getLatestJpeg(camera, step),
+      key,
+      `camera "${camera}"`,
+      maxLength,
+    )
       .then((image) => {
-        recent.set(camera, { at: now(), image });
+        recent.set(key, { at: now(), image });
         return image;
       })
-      .finally(() => inFlight.delete(camera));
-    inFlight.set(camera, promise);
+      .finally(() => inFlight.delete(key));
+    inFlight.set(key, promise);
     return promise;
   }
 
@@ -139,9 +153,9 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
      * The snapshot of a Frigate event (bounding box optional), fitted like
      * the camera images; its thumbnail when Frigate keeps no snapshot.
      * @param {string} eventId
-     * @param {{ bbox?: boolean }} [options]
+     * @param {{ bbox?: boolean, maxLength?: number }} [options]
      */
-    async eventSnapshot(eventId, { bbox = true } = {}) {
+    async eventSnapshot(eventId, { bbox = true, maxLength = MAX_IMAGE_LENGTH } = {}) {
       const client = getClient();
       if (!client) {
         throw new NotConnectedError();
@@ -154,13 +168,14 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
             // A finished event: Frigate serves its stored file as is, whatever
             // the size asked, so a smaller step cannot help.
             if (jpeg.length === previous) {
-              throw new ImageTooLargeError(`event ${eventId}`);
+              throw new ImageTooLargeError(`event ${eventId}`, maxLength);
             }
             previous = jpeg.length;
             return jpeg;
           },
           null,
           `event ${eventId}`,
+          maxLength,
         );
       } catch (err) {
         const noSnapshot = err instanceof HttpStatusError && err.status === 404;
@@ -168,8 +183,8 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
           throw err;
         }
         const image = toGladysImage(await client.getEventThumbnail(eventId));
-        if (image.length > MAX_IMAGE_LENGTH) {
-          throw new ImageTooLargeError(`event ${eventId}`);
+        if (image.length > maxLength) {
+          throw new ImageTooLargeError(`event ${eventId}`, maxLength);
         }
         return image;
       }
@@ -183,23 +198,33 @@ export function createCameraImages({ getClient, publish, now = Date.now }) {
       if (!takePushSlot(deviceExternalId)) {
         return false;
       }
-      await publish(deviceExternalId, await capture(camera));
+      await publish(
+        deviceExternalId,
+        await capture(camera, { maxLength: MAX_STORED_IMAGE_LENGTH }),
+      );
       return true;
     },
 
     /**
      * Attach an image (an event snapshot) to a camera device: it answers
-     * onGetImage for ATTACHED_MS, and is published within the same rate
+     * onGetImage for ATTACHED_MS, and `stored` (the same image, or a smaller
+     * one under MAX_STORED_IMAGE_LENGTH) is published within the same rate
      * limit as the pushes.
-     * @returns {Promise<boolean>} false when the publication was skipped by
-     *   the rate limit (the image is still attached)
+     * @param {string} deviceExternalId
+     * @param {string} image
+     * @param {string | null} [stored] null: nothing to publish
+     * @returns {Promise<boolean>} false when nothing was published (rate
+     *   limit, or no stored image); the image is still attached
      */
-    async attach(deviceExternalId, image) {
+    async attach(deviceExternalId, image, stored = image) {
       attachedImages.set(deviceExternalId, { image, until: now() + ATTACHED_MS });
+      if (!stored || stored.length > MAX_STORED_IMAGE_LENGTH) {
+        return false;
+      }
       if (!takePushSlot(deviceExternalId)) {
         return false;
       }
-      await publish(deviceExternalId, image);
+      await publish(deviceExternalId, stored);
       return true;
     },
 

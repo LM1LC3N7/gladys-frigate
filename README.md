@@ -22,8 +22,8 @@ Decisions taken and what is left: [`TODO.md`](./TODO.md).
 ## v1 scope
 
 - **One device per Frigate camera**, discovering only what the Frigate
-  configuration enables: image (every minute, on demand and on alerts, under
-  150 KB), camera enabled, detect / recordings / snapshots / audio switches
+  configuration enables: image (every minute and on alerts under 60 KB, on
+  demand under 150 KB), camera enabled, detect / recordings / snapshots / audio switches
   (confirmed by Frigate), motion, one presence sensor and one counter per
   tracked object, a total counter, the review status, optional zone
   sensors, a transport badge per camera.
@@ -54,14 +54,16 @@ src/frigate/      Frigate client — NO Gladys dependency (enforced by ESLint)
   mqttStream.js     MQTT transport (TLS trust before the CONNECT), shared by the two below
   mqttProbe.js      one-shot broker check ("Test the connection")
   mqttClient.js     real-time feed from the broker: reconnection, resubscription
-  wsClient.js       real-time feed from the Frigate WebSocket when there is no broker
+  wsClient.js       real-time feed from the Frigate WebSocket when there is no broker;
+                    one-shot camera_activity read (MQTT keeps no object count)
   topics.js         MQTT / WebSocket messages -> typed messages
   eventEngine.js    events + reviews -> deduplicated transitions (score, cooldown)
   errors.js         typed errors, never carrying a secret
 src/gladys/       thin adapter to the Gladys SDK
-  frigateSession.js connection lifecycle, real-time feed, status, the three buttons
+  frigateSession.js connection lifecycle, real-time feed, status, the three buttons,
+                    resync when Frigate is back, MQTT flapping report
   discovery.js      Frigate cameras -> Gladys devices (Discover tab)
-  images.js         camera images under 150 KB (resized by Frigate), shared captures
+  images.js         camera images (resized by Frigate): 60 KB stored, 150 KB live
   deviceSync.js     states, commands (confirmed by Frigate), polls, badges
   cameraStates.js   typed messages -> feature states
   statePublisher.js dedupe, batches, rate limit of the states sent to Gladys

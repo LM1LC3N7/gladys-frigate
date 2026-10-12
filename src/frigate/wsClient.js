@@ -145,3 +145,74 @@ export function createWsFeed({
   connect();
   return feed;
 }
+
+/**
+ * One `camera_activity` read over a short-lived WebSocket: the current
+ * objects, motion and toggles of every camera. MQTT retains none of the
+ * object counts, so a count published while the broker link was down (an
+ * object that left: 0) is otherwise never sent again.
+ * @param {object} options
+ * @param {{ webSocketUrl: string, dispatcher: object, webSocketHeaders: Function }} options.client
+ * @param {number} [options.timeoutMs]
+ * @param {typeof WebSocket} [options.WebSocketImpl]
+ * @returns {Promise<object>} the `camera_activity` payload
+ */
+export async function readCameraActivity({
+  client,
+  timeoutMs = 10_000,
+  WebSocketImpl = WebSocket,
+}) {
+  const headers = await client.webSocketHeaders();
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocketImpl(client.webSocketUrl, { dispatcher: client.dispatcher, headers });
+    let done = false;
+    const finish = (err, value) => {
+      if (done) {
+        return;
+      }
+      done = true;
+      clearTimeout(timer);
+      ws.close();
+      if (err) reject(err);
+      else resolve(value);
+    };
+    const timer = setTimeout(
+      () => finish(new UnreachableError('TIMEOUT', { cause: new Error('No camera_activity') })),
+      timeoutMs,
+    );
+    timer.unref?.();
+    ws.addEventListener('message', (event) => {
+      let message;
+      try {
+        message = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data));
+      } catch {
+        return;
+      }
+      if (message?.topic !== 'camera_activity') {
+        return;
+      }
+      let payload = message.payload;
+      if (typeof payload === 'string') {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          payload = null;
+        }
+      }
+      if (payload !== null && typeof payload === 'object') {
+        finish(null, payload);
+      }
+    });
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ topic: 'onConnect', payload: '' }));
+    });
+    ws.addEventListener('close', (event) =>
+      finish(
+        new UnreachableError('WEBSOCKET_REFUSED', {
+          cause: new Error(`WebSocket closed (${event.code})`),
+        }),
+      ),
+    );
+    ws.addEventListener('error', () => {});
+  });
+}

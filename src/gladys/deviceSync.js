@@ -175,6 +175,11 @@ export function createDeviceSync({
       }
     },
 
+    /** Frigate keeps dropping its broker connection (or stopped doing so). */
+    frigateFlapping(flapping) {
+      transports.setFrigateFlapping(flapping);
+    },
+
     /** The HTTP read of Frigate succeeded or failed. */
     frigateUp(up) {
       transports.setFrigateUp(up);
