@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AuthError, CertificateError } from '../src/frigate/errors.js';
 import { createFrigateClient } from '../src/frigate/httpClient.js';
 import { TrustStore, endpointKey } from '../src/frigate/tlsTrust.js';
-import { createWsFeed } from '../src/frigate/wsClient.js';
+import { createWsFeed, readCameraActivity } from '../src/frigate/wsClient.js';
 import { startFakeFrigate } from './helpers/fakeFrigate.js';
 import { waitFor } from './helpers/waitFor.js';
 
@@ -117,4 +117,31 @@ test('https: the WebSocket goes through the trusted connection', async (t) => {
   await waitFor(() => feed.status.state === 'connected' && messages.length === 1);
   assert.match(feed.endpoint, /^wss:/);
   assert.equal(trustStore.list().length, 1);
+});
+
+test('readCameraActivity: one WebSocket, the camera activity, closed afterwards', async (t) => {
+  const frigate = await startFakeFrigate();
+  t.after(() => frigate.close());
+  const client = createFrigateClient({ url: frigate.url, username: 'gladys', password: 'pw' });
+  t.after(() => client.close());
+  const activity = await readCameraActivity({ client });
+  assert.equal(typeof activity, 'object');
+  assert.ok(activity.front, 'the cameras of the fake');
+  assert.deepEqual(frigate.wsReceived, [{ topic: 'onConnect', payload: '' }]);
+  await waitFor(() => frigate.wsClientCount === 0, { what: 'socket closed' });
+});
+
+test('readCameraActivity: no answer in time is a timeout', async (t) => {
+  const frigate = await startFakeFrigate();
+  t.after(() => frigate.close());
+  const client = createFrigateClient({ url: frigate.url, username: 'gladys', password: 'pw' });
+  t.after(() => client.close());
+  class SilentSocket extends EventTarget {
+    send() {}
+    close() {}
+  }
+  await assert.rejects(
+    readCameraActivity({ client, timeoutMs: 20, WebSocketImpl: SilentSocket }),
+    /unreachable \(TIMEOUT\)/,
+  );
 });

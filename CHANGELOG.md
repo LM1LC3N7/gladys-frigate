@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Renaming a camera device or changing its room failed: the Gladys device
+  screen sends the device back whole, stored image included, and refuses
+  more than 100 KB. The image stored on the device now stays under 60 KB;
+  the live image (live view, "Send a camera image", attached snapshots)
+  keeps up to 150 KB.
+- A presence (or a count) could stay on forever: MQTT retains no object
+  count, so a count published while the broker link was down was lost.
+  The current objects are now read once over the Frigate WebSocket when the
+  feed connects and when Frigate comes back online.
+- A Frigate dropping its broker connection again and again re-read its
+  configuration, republished the discovery and flipped every camera badge
+  to unreachable every few seconds. The re-read now happens at most once a
+  minute, and "offline" only makes the badges unreachable after 30 s.
+
+### Added
+
+- Frigate dropping its MQTT connection three times within five minutes is
+  reported (connection status, one log warning, camera badges degraded),
+  with the usual cause: another MQTT client using Frigate's
+  `mqtt.client_id`. Its messages are lost meanwhile.
+
 ## [0.3.1] - 2026-10-09
 
 ### Changed

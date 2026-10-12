@@ -83,8 +83,12 @@ function setup({
   onMessage,
   onFeedStatus,
   onFrigateStatus,
+  onFrigateFlapping,
+  activityReader = async () => ({}),
+  resyncDelayMs = 0,
 } = {}) {
   const statuses = [];
+  const logs = [];
   const resets = [];
   const gladys = {
     async setConnectionStatus(connected, message) {
@@ -101,7 +105,10 @@ function setup({
   const session = createFrigateSession({
     gladys,
     trustStore,
-    logger: { info() {}, warn() {} },
+    logger: {
+      info: (message) => logs.push(['info', message]),
+      warn: (message) => logs.push(['warn', message]),
+    },
     clientFactory,
     mqttCheck: mqttCheck ?? (async () => ({ tlsDecision: null })),
     retryDelayMs,
@@ -111,8 +118,11 @@ function setup({
     onMessage,
     onFeedStatus,
     onFrigateStatus,
+    onFrigateFlapping,
+    activityReader,
+    resyncDelayMs,
   });
-  return { session, statuses, resets, clientFactory, feedFactory, trustStore };
+  return { session, statuses, resets, clientFactory, feedFactory, trustStore, logs };
 }
 
 const apply = (session, raw = RAW) => session.apply(normalizeConfig(raw), raw);
@@ -381,6 +391,127 @@ test('Frigate announcing it is offline shows; back online, its configuration is 
   await settle();
   assert.equal(configReads, 1, 'configuration read again after the restart');
   assert.doesNotMatch(statuses.at(-1).message.en, /offline/);
+});
+
+test('back online, Frigate is read again at most once per resync delay', async (t) => {
+  const { session, feedFactory, clientFactory } = setup({ resyncDelayMs: 80 });
+  t.after(() => session.close());
+  await apply(session);
+  const [feed] = feedFactory.created;
+  feed.setStatus('connected');
+  let configReads = 0;
+  const client = clientFactory.created[0];
+  const getConfig = client.getConfig;
+  client.getConfig = async () => {
+    configReads += 1;
+    return getConfig();
+  };
+  for (let i = 0; i < 3; i += 1) {
+    feed.emit('message', 'available', 'offline');
+    feed.emit('message', 'available', 'online');
+  }
+  await settle();
+  assert.equal(configReads, 0, 'read just before: the re-read waits');
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(configReads, 1, 'one re-read for the three announcements');
+});
+
+test('a Frigate dropping its broker connection again and again is reported', async (t) => {
+  const flaps = [];
+  const { session, statuses, feedFactory, logs } = setup({
+    onFrigateFlapping: (flapping) => flaps.push(flapping),
+  });
+  t.after(() => session.close());
+  await apply(session, { ...RAW, mqtt_host: 'broker' });
+  const [feed] = feedFactory.created;
+  feed.setStatus('connected');
+  feed.emit('message', 'available', 'online');
+  for (let i = 0; i < 2; i += 1) {
+    feed.emit('message', 'available', 'offline');
+    feed.emit('message', 'available', 'online');
+  }
+  await settle();
+  assert.deepEqual(flaps, [], 'two drops are not flapping yet');
+  feed.emit('message', 'available', 'stopped');
+  feed.emit('message', 'available', 'online');
+  assert.deepEqual(flaps, [], 'a clean stop (0.18) is not a drop');
+  feed.emit('message', 'available', 'offline');
+  await settle();
+  assert.deepEqual(flaps, [true]);
+  const { message } = statuses.at(-1);
+  assert.match(message.en, /Frigate keeps dropping its MQTT connection.*client_id/);
+  assert.match(message.fr, /Frigate perd sans cesse sa connexion MQTT/);
+  assert.doesNotMatch(message.en, /announces it is offline/, 'no status change at every drop');
+  const statusCount = statuses.length;
+  feed.emit('message', 'available', 'online');
+  feed.emit('message', 'available', 'offline');
+  await settle();
+  assert.equal(statuses.length, statusCount, 'the status stays the same while it flaps');
+  assert.equal(logs.filter(([level]) => level === 'warn').length, 1, 'one warning');
+  // A new configuration starts afresh.
+  await apply(session);
+  assert.deepEqual(flaps, [true, false]);
+  assert.doesNotMatch(statuses.at(-1).message.en, /keeps dropping/);
+});
+
+test('MQTT retains no count: the current objects are read when the feed connects', async (t) => {
+  const reads = [];
+  const messages = [];
+  const { session, feedFactory, clientFactory } = setup({
+    activityReader: async ({ client }) => {
+      reads.push(client);
+      return { front: { motion: false, objects: [{ label: 'person' }] } };
+    },
+    onMessage: (message) => messages.push(message),
+  });
+  t.after(() => session.close());
+  await apply(session, { ...RAW, mqtt_host: 'broker' });
+  const [feed] = feedFactory.created;
+  feed.setStatus('connected');
+  await settle();
+  assert.deepEqual(reads, [clientFactory.created[0]]);
+  assert.equal(messages.at(-1).type, 'cameraActivity');
+  assert.deepEqual(messages.at(-1).cameras.front.objects, [{ label: 'person' }]);
+  // And again when Frigate is back online.
+  feed.emit('message', 'available', 'offline');
+  feed.emit('message', 'available', 'online');
+  await settle();
+  await settle();
+  await settle();
+  assert.equal(reads.length, 2);
+});
+
+test('the WebSocket feed gets the current objects on its own: no extra read', async (t) => {
+  const reads = [];
+  const { session, feedFactory } = setup({
+    activityReader: async () => {
+      reads.push(1);
+      return {};
+    },
+  });
+  t.after(() => session.close());
+  await apply(session);
+  feedFactory.created[0].setStatus('connected');
+  await settle();
+  assert.deepEqual(reads, []);
+});
+
+test('a failing read of the current objects is logged once', async (t) => {
+  const { session, feedFactory, logs } = setup({
+    activityReader: async () => {
+      throw new UnreachableError('TIMEOUT');
+    },
+  });
+  t.after(() => session.close());
+  await apply(session, { ...RAW, mqtt_host: 'broker' });
+  const [feed] = feedFactory.created;
+  feed.setStatus('connected');
+  await settle();
+  feed.setStatus('disconnected', new UnreachableError('ECONNRESET'));
+  feed.setStatus('connected');
+  await settle();
+  const warnings = logs.filter(([, message]) => /current objects/.test(message));
+  assert.equal(warnings.length, 1);
 });
 
 test('messages are typed and their transitions handed over, per the configured score', async (t) => {

@@ -5,6 +5,7 @@ import {
   IMAGE_STEPS,
   ImageTooLargeError,
   MAX_IMAGE_LENGTH,
+  MAX_STORED_IMAGE_LENGTH,
   NotConnectedError,
   createCameraImages,
   createDeviceImages,
@@ -186,4 +187,36 @@ test('an attached image answers onGetImage for a minute, published within the pu
   time += 60_000;
   assert.equal(images.attached(device.external_id), null);
   assert.equal((await deviceImages.captureImage(device)).length, base64Length(1000));
+});
+
+test('the image stored on the device stays under 60 KB, the live one may reach 150 KB', async () => {
+  // 100 KB at 720p, 40 KB from 540p.
+  const client = fakeClient(({ height }) => (height >= 720 ? 100_000 : 40_000));
+  const published = [];
+  const images = createCameraImages({
+    getClient: () => client,
+    publish: async (id, image) => published.push(image),
+  });
+  await images.push('ext:frigate:camera:front', 'front');
+  assert.ok(published[0].length <= MAX_STORED_IMAGE_LENGTH);
+  assert.equal(published[0].length, base64Length(40_000));
+  // Not served from the stored image's cache: a capture of its own.
+  assert.equal((await images.capture('front')).length, base64Length(100_000));
+  // Gladys sends the device back whole (image included) under 100 KB.
+  assert.ok(MAX_STORED_IMAGE_LENGTH + 32 * 1024 < 100 * 1024);
+});
+
+test('attach: a stored copy too large, or none, is not published', async () => {
+  const published = [];
+  const images = createCameraImages({
+    getClient: () => null,
+    publish: async (id, image) => published.push(image),
+  });
+  const large = `image/jpg;base64,${'A'.repeat(MAX_STORED_IMAGE_LENGTH)}`;
+  assert.equal(await images.attach('ext:frigate:camera:front', large), false);
+  assert.equal(await images.attach('ext:frigate:camera:front', large, null), false);
+  assert.deepEqual(published, []);
+  assert.equal(images.attached('ext:frigate:camera:front'), large);
+  assert.equal(await images.attach('ext:frigate:camera:front', large, 'image/jpg;base64,BB'), true);
+  assert.deepEqual(published, ['image/jpg;base64,BB']);
 });

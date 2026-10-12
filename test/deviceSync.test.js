@@ -134,7 +134,14 @@ test('feed and camera status drive the transport badges', async (t) => {
   assert.equal(transports.at(-1).transport, 'local');
   message('available', 'offline');
   await wait(5);
+  assert.equal(transports.at(-1).transport, 'local', 'Frigate offline counts after the debounce');
+  await wait(40);
   assert.equal(transports.at(-1).transport, 'unreachable');
+  message('available', 'online');
+  sync.frigateFlapping(true);
+  await wait(5);
+  assert.equal(transports.at(-1).degraded, true);
+  assert.match(transports.at(-1).message.en, /keeps dropping its MQTT connection/);
 });
 
 test('Frigate 0.16: the camera fps of /api/stats tells a lost camera, read once for all', async (t) => {

@@ -8,6 +8,7 @@ import {
   createSnapshotAction,
   toSceneEvent,
 } from '../src/gladys/sceneEvents.js';
+import { MAX_STORED_IMAGE_LENGTH } from '../src/gladys/images.js';
 import { gladysIds } from './helpers/gladysIds.js';
 
 const manifest = JSON.parse(
@@ -131,17 +132,17 @@ test('over the per-minute budget events are dropped and counted; failures are lo
   assert.match(failing.warnings[0], /Could not send the scene event object_detected: 404/);
 });
 
-function action({ client, published = [], room = true } = {}) {
+function action({ client, published = [], room = true, snapshot } = {}) {
   const calls = [];
   const handler = createSnapshotAction({
     gladys: gladysIds,
     images: {
       eventSnapshot: async (eventId, options) => {
         calls.push([eventId, options]);
-        return 'image/jpg;base64,AAAA';
+        return snapshot ? snapshot(options) : 'image/jpg;base64,AAAA';
       },
-      attach: async (device, image) => {
-        published.push([device, image]);
+      attach: async (device, image, stored) => {
+        published.push(stored === image ? [device, image] : [device, image, stored]);
         return room;
       },
     },
@@ -188,4 +189,25 @@ test('attach_event_snapshot over the image rate limit still attaches the snapsho
   const busy = action({ client: {}, room: false });
   await busy.handler({ event_id: 'x', camera: 'ext:frigate:camera:front' });
   assert.equal(busy.published.length, 1);
+});
+
+test('attach_event_snapshot: a large snapshot is sent whole, a smaller copy stored', async () => {
+  const large = `image/jpg;base64,${'A'.repeat(MAX_STORED_IMAGE_LENGTH)}`;
+  const { handler, calls, published } = action({
+    client: {},
+    snapshot: (options) => (options.maxLength ? 'image/jpg;base64,BB' : large),
+  });
+  await handler({ event_id: 'x', camera: 'ext:frigate:camera:front' });
+  assert.deepEqual(calls[1][1], { bbox: true, maxLength: MAX_STORED_IMAGE_LENGTH });
+  assert.deepEqual(published, [['ext:frigate:camera:front', large, 'image/jpg;base64,BB']]);
+  // No smaller copy: attached all the same, nothing stored.
+  const none = action({
+    client: {},
+    snapshot: (options) => {
+      if (options.maxLength) throw new Error('too large');
+      return large;
+    },
+  });
+  await none.handler({ event_id: 'x', camera: 'ext:frigate:camera:front' });
+  assert.deepEqual(none.published, [['ext:frigate:camera:front', large, null]]);
 });

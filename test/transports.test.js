@@ -64,6 +64,8 @@ test('Frigate down or offline: every camera unreachable; a broken feed: degraded
   assert.match(last('front').message.fr, /Flux temps réel interrompu/);
   tracker.setFrigateOnline(false);
   await settle();
+  assert.equal(last('garage').transport, 'local', 'an offline Frigate counts after the debounce');
+  await wait(50);
   // Gladys only takes a message with "degraded".
   assert.deepEqual(last('garage'), {
     external_id: 'ext:frigate:camera:garage',
@@ -75,6 +77,32 @@ test('Frigate down or offline: every camera unreachable; a broken feed: degraded
   tracker.setFrigateUp(false);
   await settle();
   assert.equal(last('front').transport, 'unreachable');
+});
+
+test('a Frigate dropping its broker connection again and again: degraded, not unreachable', async (t) => {
+  const { tracker, last } = setup(t, { cameras: ['front'], debounceMs: 40 });
+  t.after(() => tracker.close());
+  tracker.setFrigateUp(true);
+  tracker.setFeed('connected');
+  for (let i = 0; i < 3; i += 1) {
+    tracker.setFrigateOnline(false);
+    await wait(10);
+    tracker.setFrigateOnline(true);
+  }
+  tracker.setFrigateFlapping(true);
+  await wait(60);
+  assert.deepEqual(last('front'), {
+    external_id: 'ext:frigate:camera:front',
+    transport: 'local',
+    degraded: true,
+    message: {
+      en: 'Frigate keeps dropping its MQTT connection: the states may be outdated',
+      fr: 'Frigate perd sans cesse sa connexion MQTT : les états peuvent être périmés',
+    },
+  });
+  tracker.setFrigateFlapping(false);
+  await settle();
+  assert.deepEqual(last('front'), { external_id: 'ext:frigate:camera:front', transport: 'local' });
 });
 
 test('a camera status only counts once offline for the debounce delay', async (t) => {
