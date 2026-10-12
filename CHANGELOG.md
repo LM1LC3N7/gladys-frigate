@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-12
+
 ### Fixed
 
 - Renaming a camera device or changing its room failed: the Gladys device
