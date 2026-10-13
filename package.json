@@ -18,7 +18,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@gladysassistant/integration-sdk": "^0.14.0",
+    "@gladysassistant/integration-sdk": "^0.15.0",
     "mqtt": "^5.16.0",
     "undici": "^7.30.0"
   },
