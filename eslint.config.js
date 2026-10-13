@@ -52,5 +52,10 @@ export default [
       ],
     },
   },
+  // The release helpers are a command-line script: printing is their job.
+  {
+    files: ['.github/scripts/**/*.mjs'],
+    rules: { 'no-console': 'off' },
+  },
   prettier,
 ];

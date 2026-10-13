@@ -4,19 +4,18 @@
 # In GitHub: Actions -> Release -> "Run workflow" -> pick patch / minor / major.
 #
 # What it does, in one run:
-#   0. runs the same checks as CI (format, lint, tests, audit): nothing is
-#      tagged or published from a red branch;
 #   1. computes the next semver from `package.json` (npm version rules);
 #   2. writes it into `package.json`, `package-lock.json` AND the manifest
 #      (`gladys-assistant-integration.json`: both `version` and the
-#      `docker_image` tag, so the indexer and the image stay in lockstep),
-#      and turns the CHANGELOG's "Unreleased" section into this version;
-#   3. commits the bump and pushes the `vX.Y.Z` tag;
-#   4. calls build.yml to publish the multi-arch image (`:X.Y.Z` + `:latest`).
+#      `docker_image` tag, so the indexer and the image stay in lockstep);
+#   3. moves the `## [Unreleased]` section of `CHANGELOG.md` under the version;
+#   4. commits the bump and pushes the `vX.Y.Z` tag;
+#   5. calls build.yml to publish the multi-arch image (`:X.Y.Z` + `:latest`);
+#   6. calls github-release.yml to publish the GitHub Release of the tag.
 #
-# Why call build.yml instead of relying on the tag push: a tag pushed with the
-# default GITHUB_TOKEN does NOT trigger other workflows, so we invoke the build
-# ourselves. No personal access token to create.
+# Why call build.yml and github-release.yml instead of relying on the tag push:
+# a tag pushed with the default GITHUB_TOKEN does NOT trigger other workflows,
+# so we invoke them ourselves. No personal access token to create.
 # -----------------------------------------------------------------------------
 name: Release
 
@@ -34,29 +33,7 @@ on:
           - major
 
 jobs:
-  quality:
-    runs-on: ubuntu-latest
-    name: Lint & test
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24
-          cache: npm
-
-      - run: npm ci
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm test
-      - run: npm audit --omit=dev --audit-level=high
-
   prepare:
-    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: write # commit the version bump and push the tag
@@ -64,16 +41,16 @@ jobs:
       version: ${{ steps.bump.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
-      - name: Bump version and update the manifest
+      - name: Bump version, update the manifest and the changelog
         id: bump
         env:
           RELEASE_TYPE: ${{ inputs.release-type }}
@@ -89,24 +66,12 @@ jobs:
           image="ghcr.io/${GITHUB_REPOSITORY,,}:${new_version}"
 
           # Keep the manifest in lockstep: the version the indexer reads AND the
-          # image tag Gladys pulls must both point at this release.
-          tmp="$(mktemp)"
-          jq --arg version "$new_version" --arg image "$image" \
-            '.version = $version | .docker_image = $image' \
-            gladys-assistant-integration.json > "$tmp"
-          mv "$tmp" gladys-assistant-integration.json
-
-          # jq does not write JSON the way Prettier does (short arrays on
-          # several lines): reformat with the project's own Prettier version,
-          # or the next CI run on this branch fails its format check.
-          prettier_version="$(node -p "require('./package.json').devDependencies.prettier.replace(/^[^0-9]*/, '')")"
-          npx --yes "prettier@${prettier_version}" --write gladys-assistant-integration.json
-
-          # CHANGELOG: the "Unreleased" section becomes this version, under a
-          # new empty "Unreleased" one.
-          if grep -q '^## \[Unreleased\]' CHANGELOG.md; then
-            sed -i "0,/^## \[Unreleased\]/s//## [Unreleased]\n\n## [${new_version}] - $(date -u +%Y-%m-%d)/" CHANGELOG.md
-          fi
+          # image tag Gladys pulls must both point at this release. The script
+          # rewrites those two values in place (re-printing the file with jq
+          # would break the Prettier layout, and the CI format check with it),
+          # and moves the [Unreleased] changes of CHANGELOG.md under the version.
+          node .github/scripts/release.mjs prepare "$new_version" "$image" \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
 
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
@@ -122,7 +87,8 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add package.json package-lock.json gladys-assistant-integration.json CHANGELOG.md
+          git add package.json package-lock.json gladys-assistant-integration.json
+          if [ -f CHANGELOG.md ]; then git add CHANGELOG.md; fi
           git commit -m "chore(release): ${VERSION}"
           git tag -a "v${VERSION}" -m "Release ${VERSION}"
 
@@ -138,3 +104,11 @@ jobs:
       packages: write
     with:
       version: ${{ needs.prepare.outputs.version }}
+
+  # Publish the GitHub Release of the new tag, once its image exists: the
+  # Gladys Supervision page links each version to the repository's releases.
+  github-release:
+    needs: build
+    uses: ./.github/workflows/github-release.yml
+    permissions:
+      contents: write
