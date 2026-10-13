@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-13
+
 ### Changed
 
 - Shared tooling of the LM1LC3N7 Gladys integrations: CI on Node 22 and 24 with `npm audit`, Release workflow driven by this changelog, GitHub Releases from its sections, grouped Dependabot updates.
@@ -191,3 +193,6 @@ All notable changes to this project are documented here. The format follows
 
 - CI runs with a read-only `GITHUB_TOKEN`; the test-only TLS material stays
   out of the Docker build context.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-frigate/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/LM1LC3N7/gladys-frigate/compare/v0.3.2...v0.3.3
