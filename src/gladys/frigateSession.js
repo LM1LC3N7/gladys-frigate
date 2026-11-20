@@ -654,6 +654,10 @@ export function createFrigateSession({
       } catch (err) {
         return describeError(err);
       }
+      // A new configuration during the read drops it.
+      if (!capabilities) {
+        return invalidConfigAnswer();
+      }
       const summary = cameraSummary(capabilities);
       return {
         en: `Frigate configuration read again: ${summary.en}. The cameras are listed in the Discover tab.`,
