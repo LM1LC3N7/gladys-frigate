@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-timeout=60000 test/*.test.js",
     "validate:manifest": "npx --yes github:GladysAssistant/integration-store .",
     "audit": "npm audit --omit=dev"
   },

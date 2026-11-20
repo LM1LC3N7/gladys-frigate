@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Frigate stayed "not connected" after a Frigate restart until the
+  integration was restarted (#12): its API answers 404 for a while after
+  Frigate announces it is online, and only network failures and 5xx were
+  retried. Any network failure or HTTP error is now retried after 5 s, then
+  twice as late each time up to one minute, one read at a time, with the
+  next attempt shown in the status. The retries stop while MQTT says Frigate
+  is offline (its "online" announcement reads it again) and when the
+  integration stops. A scene action or an image that needs Frigate during
+  the wait brings the next attempt forward (at most once per 5 s). Refused
+  credentials or certificates are still never retried.
+
 ## [0.3.3] - 2026-10-13
 
 ### Changed

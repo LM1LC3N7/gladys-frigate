@@ -52,9 +52,10 @@ export default [
       ],
     },
   },
-  // The release helpers are a command-line script: printing is their job.
+  // The release helpers and the mutation check are command-line scripts:
+  // printing is their job.
   {
-    files: ['.github/scripts/**/*.mjs'],
+    files: ['.github/scripts/**/*.mjs', 'scripts/**/*.mjs'],
     rules: { 'no-console': 'off' },
   },
   prettier,

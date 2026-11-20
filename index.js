@@ -29,8 +29,15 @@ const zoneSensors = () => session.config?.zone_sensors === true;
 const discover = (capabilities) =>
   publishDiscovery(gladys, capabilities, { zoneSensors: zoneSensors() });
 
+// The Frigate client while connected; otherwise a pending retry of the API
+// is brought forward (Frigate may be back already), and null.
+const connectedClient = () => {
+  const client = session.client;
+  if (!client) session.kick();
+  return client;
+};
 const cameraImages = createCameraImages({
-  getClient: () => session.client,
+  getClient: connectedClient,
   publish: (externalId, image) => gladys.publishCameraImage(externalId, image),
 });
 const deviceImages = createDeviceImages({
@@ -93,7 +100,7 @@ gladys.onSetValue((device, feature, value) => deviceSync.setValue(device, featur
 
 gladys.onSceneAction(
   SCENE_ACTIONS.ATTACH_EVENT_SNAPSHOT,
-  createSnapshotAction({ gladys, images: cameraImages, getClient: () => session.client }),
+  createSnapshotAction({ gladys, images: cameraImages, getClient: connectedClient }),
 );
 
 gladys.onAction(MANIFEST_ACTIONS.TEST_CONNECTION, () => session.testConnection());

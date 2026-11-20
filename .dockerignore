@@ -11,3 +11,4 @@ data
 README.md
 # Test-only TLS material (with a private key) never enters the build context.
 test
+scripts

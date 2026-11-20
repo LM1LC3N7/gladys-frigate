@@ -243,7 +243,14 @@ La vidéo en direct ne passe pas par cette intégration. Utilisez le service
   épinglée. En cas de doute, comparez-la à celle de votre Frigate (commande
   ci-dessus).
 
-Quand Frigate est injoignable, l'intégration réessaie chaque minute. Un
+Quand Frigate ne peut pas être lu (pas de réponse, ou une erreur HTTP comme
+le 404 ou le 502 qu'il renvoie pendant son démarrage), l'intégration réessaie
+après 5 secondes, puis deux fois plus tard à chaque fois, jusqu'à une fois par
+minute ; le statut dit quand (« Nouvel essai dans 20 s »). Tant que MQTT dit
+Frigate hors ligne, elle attend plutôt qu'il s'annonce de retour. Une action
+de scène qui a besoin de Frigate pendant l'attente (joindre l'instantané de
+l'événement) avance l'essai suivant ; l'action elle-même échoue encore, la
+suivante passe dès que Frigate répond. Un
 certificat ou des identifiants refusés attendent en revanche votre action :
 réessayer ne ferait que bloquer le compte (Frigate limite les connexions
 échouées).

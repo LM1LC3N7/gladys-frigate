@@ -61,7 +61,7 @@ src/frigate/      Frigate client — NO Gladys dependency (enforced by ESLint)
   errors.js         typed errors, never carrying a secret
 src/gladys/       thin adapter to the Gladys SDK
   frigateSession.js connection lifecycle, real-time feed, status, the three buttons,
-                    resync when Frigate is back, MQTT flapping report
+                    resync when Frigate is back, API retries with backoff, MQTT flapping report
   discovery.js      Frigate cameras -> Gladys devices (Discover tab)
   images.js         camera images (resized by Frigate): 60 KB stored, 150 KB live
   deviceSync.js     states, commands (confirmed by Frigate), polls, badges

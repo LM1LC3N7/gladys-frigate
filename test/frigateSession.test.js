@@ -1,10 +1,11 @@
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { normalizeConfig } from '../src/config.js';
 import {
   AuthError,
   CertificateError,
+  HttpStatusError,
   MqttRefusedError,
   UnreachableError,
 } from '../src/frigate/errors.js';
@@ -77,7 +78,9 @@ function fakeFeedFactory() {
 function setup({
   outcomes,
   mqttCheck,
-  retryDelayMs = 60_000,
+  retryBaseMs = 5_000,
+  retryMaxMs = 60_000,
+  now,
   onConnected,
   onTransition,
   onMessage,
@@ -111,7 +114,9 @@ function setup({
     },
     clientFactory,
     mqttCheck: mqttCheck ?? (async () => ({ tlsDecision: null })),
-    retryDelayMs,
+    retryBaseMs,
+    retryMaxMs,
+    ...(now ? { now } : {}),
     onConnected,
     feedFactory,
     onTransition,
@@ -153,7 +158,10 @@ test('an invalid configuration is reported and creates no client', async (t) => 
 });
 
 test('a network failure is retried; a refused certificate or login is not', async (t) => {
-  const transient = setup({ outcomes: [new UnreachableError('ECONNREFUSED')], retryDelayMs: 10 });
+  const transient = setup({
+    outcomes: [new UnreachableError('ECONNREFUSED')],
+    retryBaseMs: 10,
+  });
   t.after(() => transient.session.close());
   await apply(transient.session);
   assert.equal(transient.statuses.at(-1).connected, false);
@@ -165,7 +173,7 @@ test('a network failure is retried; a refused certificate or login is not', asyn
     new CertificateError(TRUST_REASONS.CERTIFICATE_CHANGED, '192.168.1.10:8971', FINGERPRINT),
     new AuthError('invalid_credentials'),
   ]) {
-    const permanent = setup({ outcomes: [error], retryDelayMs: 10 });
+    const permanent = setup({ outcomes: [error], retryBaseMs: 10 });
     t.after(() => permanent.session.close());
     await apply(permanent.session);
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -582,4 +590,263 @@ test('pins that cannot be saved are reported in the status', async (t) => {
   await apply(session);
   assert.match(statuses.at(-1).message.en, /cannot be saved in \/data/);
   assert.match(statuses.at(-1).message.fr, /ne peuvent pas être enregistrés dans \/data/);
+});
+
+// --- Retries of the API after a failed read (issue #12) ----------------------
+
+/** Simulated clock: setTimeout mocked, `now` follows it. */
+function fakeClock(t) {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => mock.timers.reset());
+  let time = 1_000_000;
+  return {
+    now: () => time,
+    async tick(ms) {
+      time += ms;
+      mock.timers.tick(ms);
+      for (let i = 0; i < 5; i += 1) await settle();
+    },
+  };
+}
+
+/** A session connected over MQTT with Frigate online; counts the version reads. */
+async function onlineSession(t, outcomes, options = {}) {
+  const clock = fakeClock(t);
+  const ctx = setup({ outcomes, now: clock.now, ...options });
+  t.after(() => ctx.session.close());
+  await apply(ctx.session, { ...RAW, mqtt_host: 'broker' });
+  const [feed] = ctx.feedFactory.created;
+  feed.setStatus('connected');
+  feed.emit('message', 'available', 'online');
+  const client = ctx.clientFactory.created[0];
+  const getVersion = client.getVersion;
+  ctx.reads = 0;
+  client.getVersion = async () => {
+    ctx.reads += 1;
+    return getVersion();
+  };
+  return Object.assign(ctx, { clock, feed, client });
+}
+
+/** Frigate restarts: "offline", then "online" while its API still answers 404. */
+async function restart(feed) {
+  feed.emit('message', 'available', 'offline');
+  feed.emit('message', 'available', 'online');
+  for (let i = 0; i < 5; i += 1) await settle();
+}
+
+const notFound = () => new HttpStatusError(404, '/api/version');
+
+test('a 404 while Frigate starts is retried with a growing delay until it answers', async (t) => {
+  // First read OK (apply), then 404 three times, then OK.
+  const ctx = await onlineSession(t, [undefined, notFound(), notFound(), notFound()]);
+  const { session, statuses, clock, feed, logs } = ctx;
+  await restart(feed);
+  assert.equal(ctx.reads, 1, 'read when Frigate came back');
+  assert.equal(session.client, null);
+  assert.equal(statuses.at(-1).connected, false);
+  assert.match(statuses.at(-1).message.en, /HTTP 404 on \/api\/version.*New attempt in 5 s\./);
+  assert.match(statuses.at(-1).message.fr, /Nouvel essai dans 5 s\./);
+  await clock.tick(4_999);
+  assert.equal(ctx.reads, 1, 'not before 5 s');
+  await clock.tick(1);
+  assert.equal(ctx.reads, 2);
+  assert.match(statuses.at(-1).message.en, /New attempt in 10 s\./);
+  await clock.tick(9_999);
+  assert.equal(ctx.reads, 2, 'not before 10 s');
+  await clock.tick(1);
+  assert.equal(ctx.reads, 3);
+  await clock.tick(20_000);
+  assert.equal(ctx.reads, 4);
+  assert.equal(statuses.at(-1).connected, true, 'connected again');
+  assert.ok(session.client, 'the API client is available again');
+  await clock.tick(10 * 60_000);
+  assert.equal(ctx.reads, 4, 'no read once connected');
+  const failures = logs.filter(([, line]) => /not available/.test(line));
+  assert.equal(failures.length, 1, 'a lasting failure is logged once');
+});
+
+test('the retry delay stops growing at its maximum, and a success resets it', async (t) => {
+  const failures = Array.from({ length: 8 }, notFound);
+  const ctx = await onlineSession(t, [undefined, ...failures]);
+  const { statuses, clock, feed } = ctx;
+  await restart(feed);
+  const delays = [];
+  for (let i = 0; i < 7; i += 1) {
+    delays.push(Number(/New attempt in (\d+) s/.exec(statuses.at(-1).message.en)[1]));
+    const before = ctx.reads;
+    await clock.tick(delays.at(-1) * 1000);
+    assert.equal(ctx.reads, before + 1);
+  }
+  assert.deepEqual(delays, [5, 10, 20, 40, 60, 60, 60]);
+  await clock.tick(60_000);
+  assert.equal(statuses.at(-1).connected, true);
+  ctx.client.getVersion = async () => {
+    ctx.reads += 1;
+    throw notFound();
+  };
+  // Without any "offline" in between: the success alone resets the delay.
+  await ctx.session.refreshCameras();
+  assert.match(statuses.at(-1).message.en, /New attempt in 5 s\./, 'starts again from 5 s');
+});
+
+test('every kind of transient failure is retried; refused credentials are not', async (t) => {
+  for (const error of [
+    new HttpStatusError(502, '/api/version'),
+    new HttpStatusError(503, '/api/config'),
+    new UnreachableError('ECONNREFUSED'),
+    new UnreachableError('TIMEOUT'),
+  ]) {
+    const ctx = await onlineSession(t, [undefined, error]);
+    await restart(ctx.feed);
+    await ctx.clock.tick(5_000);
+    assert.equal(ctx.reads, 2, `${error.message}: retried`);
+    assert.equal(ctx.statuses.at(-1).connected, true);
+    await ctx.session.close();
+    mock.timers.reset();
+  }
+  for (const error of [new AuthError('invalid_credentials'), new AuthError('forbidden')]) {
+    const ctx = await onlineSession(t, [undefined, error]);
+    await restart(ctx.feed);
+    assert.doesNotMatch(ctx.statuses.at(-1).message.en, /New attempt/);
+    await ctx.clock.tick(3_600_000);
+    assert.equal(ctx.reads, 1, `${error.code}: no retry`);
+    ctx.session.kick();
+    await ctx.clock.tick(1);
+    assert.equal(ctx.reads, 1, `${error.code}: no read on kick`);
+    await ctx.session.close();
+    mock.timers.reset();
+  }
+});
+
+test('the retries stop when MQTT says Frigate is offline, and resume when it is back', async (t) => {
+  const ctx = await onlineSession(t, [undefined, notFound(), notFound(), notFound()]);
+  const { session, statuses, clock, feed } = ctx;
+  await restart(feed);
+  assert.equal(ctx.reads, 1);
+  feed.emit('message', 'available', 'offline');
+  await clock.tick(3_600_000);
+  assert.equal(ctx.reads, 1, 'no read while Frigate is offline');
+  // A scan while it is offline fails without announcing a retry.
+  assert.equal(await session.ensureConnected(), null);
+  assert.equal(ctx.reads, 2);
+  assert.doesNotMatch(statuses.at(-1).message.en, /New attempt/);
+  await clock.tick(3_600_000);
+  assert.equal(ctx.reads, 2, 'still no retry while offline');
+  feed.emit('message', 'available', 'online');
+  await clock.tick(0);
+  assert.equal(ctx.reads, 3, 'read again when it is back');
+  assert.match(statuses.at(-1).message.en, /New attempt in 5 s\./, 'backoff restarted');
+  await clock.tick(5_000);
+  assert.equal(ctx.reads, 4);
+  assert.equal(statuses.at(-1).connected, true);
+});
+
+test('a re-read waiting for the resync delay is dropped when Frigate goes offline', async (t) => {
+  const ctx = await onlineSession(t, [undefined], { resyncDelayMs: 60_000 });
+  await restart(ctx.feed);
+  assert.equal(ctx.reads, 0, 'read just before: the re-read waits');
+  ctx.feed.emit('message', 'available', 'offline');
+  await ctx.clock.tick(3_600_000);
+  assert.equal(ctx.reads, 0, 'no read while Frigate is offline');
+});
+
+test('a failure ending after "offline" schedules no retry', async (t) => {
+  const ctx = await onlineSession(t, [undefined]);
+  const { clock, feed, client, statuses } = ctx;
+  let fail;
+  client.getVersion = () => {
+    ctx.reads += 1;
+    return new Promise((resolve, reject) => {
+      fail = reject;
+    });
+  };
+  await restart(feed);
+  assert.equal(ctx.reads, 1);
+  feed.emit('message', 'available', 'offline');
+  fail(notFound());
+  await clock.tick(0);
+  await clock.tick(3_600_000);
+  assert.equal(ctx.reads, 1, '"offline" before the failure');
+  // "offline" while the failure status is being published.
+  feed.emit('message', 'available', 'online');
+  await clock.tick(0);
+  assert.equal(ctx.reads, 2);
+  const push = statuses.push.bind(statuses);
+  statuses.push = (status) => {
+    if (/New attempt/.test(status.message?.en)) {
+      feed.emit('message', 'available', 'offline');
+    }
+    return push(status);
+  };
+  fail(notFound());
+  await clock.tick(0);
+  await clock.tick(3_600_000);
+  assert.equal(ctx.reads, 2, '"offline" during the status update');
+});
+
+test('stopping the integration during the wait cancels the retry', async (t) => {
+  const ctx = await onlineSession(t, [undefined, notFound(), notFound()]);
+  await restart(ctx.feed);
+  await ctx.clock.tick(5_000);
+  assert.equal(ctx.reads, 2, 'next attempt in 10 s');
+  await ctx.clock.tick(5_000);
+  await ctx.session.close();
+  const published = ctx.statuses.length;
+  ctx.session.kick();
+  await ctx.clock.tick(0);
+  assert.equal(ctx.statuses.length, published, 'no read nor status on kick after close()');
+  await ctx.clock.tick(3_600_000);
+  assert.equal(ctx.reads, 2, 'no read after close()');
+  assert.equal(ctx.statuses.length, published, 'no status after close()');
+});
+
+test('a new configuration cancels the retry of the previous one', async (t) => {
+  const ctx = await onlineSession(t, [undefined, notFound()]);
+  await restart(ctx.feed);
+  await apply(ctx.session, { ...RAW, mqtt_host: 'broker', username: 'other' });
+  await ctx.clock.tick(3_600_000);
+  assert.equal(ctx.reads, 1, 'the old client is not read again');
+});
+
+test('kick() brings a pending retry forward, one read at a time and at most every 5 s', async (t) => {
+  const ctx = await onlineSession(t, [undefined, notFound(), notFound()]);
+  const { session, statuses, clock, feed, client } = ctx;
+  await restart(feed);
+  session.kick();
+  await clock.tick(0);
+  assert.equal(ctx.reads, 1, 'too soon after the failed read');
+  await clock.tick(5_000);
+  assert.equal(ctx.reads, 2, 'second failure: next attempt in 10 s');
+  assert.match(statuses.at(-1).message.en, /New attempt in 10 s\./);
+  // Hold the next read open to count the concurrent ones.
+  let answer;
+  const getVersion = client.getVersion;
+  client.getVersion = () => {
+    ctx.reads += 1;
+    return new Promise((resolve) => {
+      answer = resolve;
+    });
+  };
+  await clock.tick(4_999);
+  session.kick();
+  await clock.tick(0);
+  assert.equal(ctx.reads, 2, 'still too soon');
+  await clock.tick(1);
+  session.kick();
+  session.kick();
+  await clock.tick(0);
+  assert.equal(ctx.reads, 3, 'brought forward once, 5 s after the last read');
+  for (let i = 0; i < 5; i += 1) session.kick();
+  const scan = session.ensureConnected();
+  await clock.tick(60_000);
+  assert.equal(ctx.reads, 3, 'one read in flight, a scan joins it');
+  client.getVersion = getVersion;
+  answer('0.17.2');
+  assert.ok(await scan, 'the scan gets the capabilities');
+  await clock.tick(0);
+  assert.equal(statuses.at(-1).connected, true);
+  session.kick();
+  await clock.tick(60_000);
+  assert.equal(ctx.reads, 3, 'connected: kick does nothing');
 });

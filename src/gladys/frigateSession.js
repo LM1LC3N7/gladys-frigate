@@ -4,9 +4,14 @@
 //   - apply(config): validate the configuration, (re)create the HTTP client,
 //     read the version and the cameras, publish the connection status
 //     (connected, or why not, plus the security warnings). A network failure
-//     is retried every minute; a refused certificate, refused credentials or
-//     an unsupported version wait for the user instead (looping would only
-//     hit Frigate's login rate limit or hide a real problem).
+//     or an HTTP error (Frigate answers 404 or 502 while it starts) is
+//     retried after 5 s, then twice as late each time up to one minute, one
+//     read at a time; the retries stop while MQTT says Frigate is offline
+//     (its "online" announcement reads it again). A refused certificate,
+//     refused credentials or an unsupported version wait for the user
+//     instead (looping would only hit Frigate's login rate limit or hide a
+//     real problem). kick() brings a pending retry forward when something
+//     needs Frigate now (a scene action), at most once per 5 s.
 //   - The three manifest action buttons: test_connection, refresh_cameras,
 //     reset_certificate.
 //   - onConnected(capabilities) runs after every successful read of Frigate
@@ -31,7 +36,7 @@
 
 import { configWarnings, usesMqtt } from '../config.js';
 import { readCapabilities } from '../frigate/capabilities.js';
-import { HttpStatusError, UnreachableError } from '../frigate/errors.js';
+import { FrigateError, HttpStatusError, UnreachableError } from '../frigate/errors.js';
 import { createEventEngine } from '../frigate/eventEngine.js';
 import { createFrigateClient } from '../frigate/httpClient.js';
 import { createMqttFeed } from '../frigate/mqttClient.js';
@@ -41,7 +46,8 @@ import { createWsFeed, readCameraActivity } from '../frigate/wsClient.js';
 import { describeAuth, describeError, describeFeed, describeTls } from './messages.js';
 import { composeMessage, describeConfig } from './status.js';
 
-const RETRY_DELAY_MS = 60_000;
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
 const RESYNC_DELAY_MS = 60_000;
 const FLAP_WINDOW_MS = 5 * 60_000;
 const FLAP_COUNT = 3;
@@ -55,8 +61,24 @@ const UNSAVED_PINS = {
 };
 const MAX_LISTED_CAMERAS = 10;
 
-const isTransient = (err) =>
-  err instanceof UnreachableError || (err instanceof HttpStatusError && err.status >= 500);
+/**
+ * Worth reading again by itself: no answer, an HTTP error status (401/403
+ * are AuthError, never retried), or a garbled answer (a proxy page while
+ * Frigate starts). Not a refused certificate, credentials or version.
+ */
+const isRetryable = (err) =>
+  err instanceof UnreachableError ||
+  err instanceof HttpStatusError ||
+  err?.constructor === FrigateError;
+
+/** "New attempt in 20 s." */
+function retryNote(delayMs) {
+  const seconds = Math.max(1, Math.round(delayMs / 1000));
+  return {
+    en: `New attempt in ${seconds} s.`,
+    fr: `Nouvel essai dans ${seconds} s.`,
+  };
+}
 
 function cameraList(capabilities) {
   const names = capabilities.cameras.map((camera) => camera.friendlyName);
@@ -110,7 +132,8 @@ export function createFeed({ config, client, trustStore }) {
  * @param {{ info: Function, warn: Function }} options.logger
  * @param {Function} [options.clientFactory] createFrigateClient (tests)
  * @param {Function} [options.mqttCheck] probeMqtt (tests)
- * @param {number} [options.retryDelayMs]
+ * @param {number} [options.retryBaseMs] first retry delay, doubled up to retryMaxMs
+ * @param {number} [options.retryMaxMs]
  * @param {(capabilities: object) => Promise} [options.onConnected]
  * @param {Function} [options.feedFactory] createFeed (tests)
  * @param {(transition: object) => void} [options.onTransition] eventEngine output
@@ -120,7 +143,7 @@ export function createFeed({ config, client, trustStore }) {
  * @param {(flapping: boolean) => void} [options.onFrigateFlapping]
  * @param {Function} [options.activityReader] readCameraActivity (tests)
  * @param {number} [options.resyncDelayMs] minimum delay between two re-reads
- * @param {() => number} [options.now]
+ * @param {() => number} [options.now] monotonic clock (ms)
  */
 export function createFrigateSession({
   gladys,
@@ -128,7 +151,8 @@ export function createFrigateSession({
   logger,
   clientFactory = createFrigateClient,
   mqttCheck = probeMqtt,
-  retryDelayMs = RETRY_DELAY_MS,
+  retryBaseMs = RETRY_BASE_MS,
+  retryMaxMs = RETRY_MAX_MS,
   onConnected = async () => {},
   feedFactory = createFeed,
   onTransition = () => {},
@@ -138,13 +162,17 @@ export function createFrigateSession({
   onFrigateFlapping = () => {},
   activityReader = readCameraActivity,
   resyncDelayMs = RESYNC_DELAY_MS,
-  now = Date.now,
+  now = () => performance.now(),
 }) {
   let config = null;
   let raw = {};
   let client = null;
   let capabilities = null;
   let retryTimer = null;
+  let retryCount = 0; // failed reads in a row, for the backoff
+  let lastAttempt = -Infinity; // start of the last read of Frigate
+  let autoInFlight = null; // the automatic read running (retry, resync, kick)
+  let failureLogged = null; // last failure logged, to log a lasting one once
   // Bumped on every apply(): a slow check of an older configuration must
   // not overwrite the status of the current one.
   let generation = 0;
@@ -153,7 +181,7 @@ export function createFrigateSession({
   let known = { cameras: new Set(), zones: new Set() };
   let engine = createEventEngine();
   let lastStatus = null;
-  let lastRead = 0; // time of the last successful read of Frigate
+  let lastRead = -Infinity; // time of the last successful read of Frigate
   let resyncTimer = null;
   let offlineTimes = []; // "offline" announcements within FLAP_WINDOW_MS
   let flapping = false;
@@ -246,7 +274,7 @@ export function createFrigateSession({
       if (currentGeneration !== generation) {
         return;
       }
-      check(currentGeneration)
+      autoCheck(currentGeneration)
         .then(() => refreshActivity(currentGeneration))
         .catch(() => {});
     };
@@ -275,6 +303,12 @@ export function createFrigateSession({
         // "stopped" (0.18) is a clean stop; "offline" is the broker's LWT.
         if (message.state === 'offline' && feed?.status.state === 'connected') {
           noteOffline();
+        }
+        if (!message.online) {
+          // Nothing to read until it is back: its "online" reads it again.
+          stopRetry();
+          clearTimeout(resyncTimer);
+          resyncTimer = null;
         }
         publishConnected();
       }
@@ -368,9 +402,54 @@ export function createFrigateSession({
     ]);
   }
 
-  /** Read Frigate and publish the status; schedules a retry on a transient failure. */
+  function stopRetry() {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retryCount = 0;
+  }
+
+  /** The retry after a failed read, unless MQTT says Frigate is offline. */
+  function retryDelay() {
+    if (frigateOnline === false) {
+      return null;
+    }
+    const delay = Math.min(retryBaseMs * 2 ** Math.min(retryCount, 30), retryMaxMs);
+    retryCount += 1;
+    return delay;
+  }
+
+  function scheduleRetry(currentGeneration, delay) {
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (currentGeneration !== generation) {
+        return;
+      }
+      autoCheck(currentGeneration)
+        .then(() => refreshActivity(currentGeneration))
+        .catch(() => {});
+    }, delay);
+    retryTimer.unref?.();
+  }
+
+  /** An automatic read: one at a time, joined by the others meanwhile. */
+  function autoCheck(currentGeneration) {
+    if (!autoInFlight) {
+      const running = check(currentGeneration).finally(() => {
+        if (autoInFlight === running) {
+          autoInFlight = null;
+        }
+      });
+      autoInFlight = running;
+    }
+    return autoInFlight;
+  }
+
+  /** Read Frigate and publish the status; schedules a retry on a retryable failure. */
   async function check(currentGeneration) {
     clearTimeout(retryTimer);
+    retryTimer = null;
+    lastAttempt = now();
     try {
       const result = await readFrigate();
       if (currentGeneration !== generation) {
@@ -378,6 +457,8 @@ export function createFrigateSession({
       }
       capabilities = result;
       lastRead = now();
+      retryCount = 0;
+      failureLogged = null;
       known = {
         cameras: new Set(result.cameras.map((camera) => camera.name)),
         zones: new Set(result.cameras.flatMap((camera) => camera.zones.map((zone) => zone.name))),
@@ -395,11 +476,27 @@ export function createFrigateSession({
       }
       capabilities = null;
       onFrigateStatus(false);
-      logger.warn(`Frigate is not available: ${err.message}`);
-      await setStatus(false, composeMessage([describeError(err), ...configWarnings(config)]));
-      if (isTransient(err)) {
-        retryTimer = setTimeout(() => check(currentGeneration).catch(() => {}), retryDelayMs);
-        retryTimer.unref?.();
+      const delay = isRetryable(err) ? retryDelay() : null;
+      if (delay === null) {
+        retryCount = 0;
+      }
+      // A lasting failure is logged once, not at every attempt.
+      if (failureLogged !== err.message) {
+        failureLogged = err.message;
+        const next = delay === null ? '' : `, new attempt in ${Math.round(delay / 1000)} s`;
+        logger.warn(`Frigate is not available: ${err.message}${next}`);
+      }
+      await setStatus(
+        false,
+        composeMessage([
+          describeError(err),
+          delay === null ? null : retryNote(delay),
+          ...configWarnings(config),
+        ]),
+      );
+      // A newer configuration, a stop or "offline" may have come meanwhile.
+      if (delay !== null && currentGeneration === generation && frigateOnline !== false) {
+        scheduleRetry(currentGeneration, delay);
       }
       throw err;
     }
@@ -447,7 +544,8 @@ export function createFrigateSession({
     async apply(newConfig, rawConfig = {}) {
       generation += 1;
       const currentGeneration = generation;
-      clearTimeout(retryTimer);
+      stopRetry();
+      failureLogged = null;
       config = newConfig;
       raw = rawConfig;
       capabilities = null;
@@ -488,7 +586,7 @@ export function createFrigateSession({
       if (capabilities || !client) {
         return capabilities;
       }
-      await check(generation).catch(() => {});
+      await autoCheck(generation).catch(() => {});
       return capabilities;
     },
 
@@ -604,9 +702,27 @@ export function createFrigateSession({
       return feed;
     },
 
+    /**
+     * Something needs Frigate now while it is not connected (a scene action):
+     * bring the pending retry forward, at most once per retry base delay.
+     * Without a pending retry (refused credentials, Frigate offline, a read
+     * running) it does nothing.
+     */
+    kick() {
+      if (capabilities || !retryTimer || now() - lastAttempt < retryBaseMs) {
+        return;
+      }
+      const currentGeneration = generation;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      autoCheck(currentGeneration)
+        .then(() => refreshActivity(currentGeneration))
+        .catch(() => {});
+    },
+
     async close() {
       generation += 1;
-      clearTimeout(retryTimer);
+      stopRetry();
       await stopFeed();
       await client?.close();
       client = null;

@@ -1,0 +1,80 @@
+[
+  {
+    "name": "a 404 is not retried",
+    "file": "src/gladys/frigateSession.js",
+    "from": "  err instanceof HttpStatusError ||\n",
+    "to": "  (err instanceof HttpStatusError && err.status >= 500) ||\n"
+  },
+  {
+    "name": "refused credentials retried",
+    "file": "src/gladys/frigateSession.js",
+    "from": "  err?.constructor === FrigateError;",
+    "to": "  err instanceof FrigateError;"
+  },
+  {
+    "name": "retry delay not capped",
+    "file": "src/gladys/frigateSession.js",
+    "from": "Math.min(retryBaseMs * 2 ** Math.min(retryCount, 30), retryMaxMs)",
+    "to": "retryBaseMs * 2 ** Math.min(retryCount, 30)"
+  },
+  {
+    "name": "retry delay not growing",
+    "file": "src/gladys/frigateSession.js",
+    "from": "    retryCount += 1;\n",
+    "to": ""
+  },
+  {
+    "name": "success does not reset the backoff",
+    "file": "src/gladys/frigateSession.js",
+    "from": "      retryCount = 0;\n      failureLogged = null;",
+    "to": "      failureLogged = null;"
+  },
+  {
+    "name": "retry announced while Frigate is offline",
+    "file": "src/gladys/frigateSession.js",
+    "from": "    if (frigateOnline === false) {\n      return null;\n    }\n",
+    "to": ""
+  },
+  {
+    "name": "retry scheduled after an \"offline\" received during the read",
+    "file": "src/gladys/frigateSession.js",
+    "from": "currentGeneration === generation && frigateOnline !== false",
+    "to": "currentGeneration === generation"
+  },
+  {
+    "name": "\"offline\" does not stop the retries",
+    "file": "src/gladys/frigateSession.js",
+    "from": "        if (!message.online) {\n          // Nothing to read until it is back: its \"online\" reads it again.\n          stopRetry();",
+    "to": "        if (!message.online) {\n          // Nothing to read until it is back: its \"online\" reads it again."
+  },
+  {
+    "name": "\"offline\" keeps a waiting re-read",
+    "file": "src/gladys/frigateSession.js",
+    "from": "          stopRetry();\n          clearTimeout(resyncTimer);\n          resyncTimer = null;",
+    "to": "          stopRetry();"
+  },
+  {
+    "name": "automatic reads not single-flight",
+    "file": "src/gladys/frigateSession.js",
+    "from": "    if (!autoInFlight) {",
+    "to": "    if (true) {"
+  },
+  {
+    "name": "kick() not throttled",
+    "file": "src/gladys/frigateSession.js",
+    "from": "!retryTimer || now() - lastAttempt < retryBaseMs",
+    "to": "!retryTimer"
+  },
+  {
+    "name": "kick() without a pending retry",
+    "file": "src/gladys/frigateSession.js",
+    "from": "if (capabilities || !retryTimer || now()",
+    "to": "if (capabilities || now()"
+  },
+  {
+    "name": "close() keeps the retry",
+    "file": "src/gladys/frigateSession.js",
+    "from": "      generation += 1;\n      stopRetry();\n      await stopFeed();",
+    "to": "      generation += 1;\n      await stopFeed();"
+  }
+]
