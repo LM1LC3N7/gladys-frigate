@@ -54,9 +54,9 @@
     "to": "          stopRetry();"
   },
   {
-    "name": "automatic reads not single-flight",
+    "name": "reads not single-flight",
     "file": "src/gladys/frigateSession.js",
-    "from": "    if (!autoInFlight) {",
+    "from": "    if (inFlight?.generation !== currentGeneration) {",
     "to": "    if (true) {"
   },
   {
@@ -98,7 +98,7 @@
   {
     "name": "login 404 + 401 is a refusal",
     "file": "src/frigate/httpClient.js",
-    "from": "          throw new HttpStatusError(404, '/api/login');",
+    "from": "          throw new LoginMissingError();",
     "to": "          throw new AuthError('invalid_credentials');"
   },
   {
@@ -106,5 +106,35 @@
     "file": "src/frigate/httpClient.js",
     "from": "        auth.expiresAt = null;\n      }\n    }\n    let response",
     "to": "      }\n    }\n    let response"
+  },
+  {
+    "name": "a read of another generation is joined",
+    "file": "src/gladys/frigateSession.js",
+    "from": "    if (inFlight?.generation !== currentGeneration) {",
+    "to": "    if (!inFlight) {"
+  },
+  {
+    "name": "\"Trust the new certificate\" keeps the generation",
+    "file": "src/gladys/frigateSession.js",
+    "from": "      generation += 1;\n      stopRetry();\n      await replaceClient();",
+    "to": "      stopRetry();\n      await replaceClient();"
+  },
+  {
+    "name": "\"Test the connection\" reads beside the running read",
+    "file": "src/gladys/frigateSession.js",
+    "from": "        await read(generation);\n        parts.push(",
+    "to": "        await check(generation);\n        parts.push("
+  },
+  {
+    "name": "resync ignores the failed attempt",
+    "file": "src/gladys/frigateSession.js",
+    "from": "capabilities ? -Infinity : lastAttempt + retryBaseMs",
+    "to": "-Infinity"
+  },
+  {
+    "name": "login 404 + 401 without its own message",
+    "file": "src/frigate/httpClient.js",
+    "from": "          throw new LoginMissingError();",
+    "to": "          throw new HttpStatusError(404, '/api/login');"
   }
 ]

@@ -6,6 +6,7 @@ import {
   AuthError,
   CertificateError,
   HttpStatusError,
+  LoginMissingError,
   MqttRefusedError,
   UnreachableError,
 } from '../src/frigate/errors.js';
@@ -849,4 +850,103 @@ test('kick() brings a pending retry forward, one read at a time and at most ever
   session.kick();
   await clock.tick(60_000);
   assert.equal(ctx.reads, 3, 'connected: kick does nothing');
+});
+
+test('a new configuration during a slow read keeps retrying (the old read is not joined)', async (t) => {
+  const clock = fakeClock(t);
+  const outcomes = [notFound()];
+  const { session, statuses, clientFactory } = setup({ outcomes, now: clock.now });
+  t.after(() => session.close());
+  await apply(session);
+  assert.match(statuses.at(-1).message.en, /New attempt in 5 s\./);
+  // The retry of the first configuration hangs (Frigate starting, timeouts).
+  clientFactory.created[0].getVersion = () => new Promise(() => {});
+  await clock.tick(5_000);
+  outcomes.push(notFound(), notFound(), notFound());
+  await apply(session, { ...RAW, username: 'other' });
+  const second = clientFactory.created[1];
+  assert.ok(second);
+  assert.match(statuses.at(-1).message.en, /New attempt in 5 s\./);
+  let reads = 0;
+  const getVersion = second.getVersion;
+  second.getVersion = () => {
+    reads += 1;
+    return getVersion();
+  };
+  await clock.tick(5_000);
+  assert.equal(reads, 1, 'the retry of the new configuration reads its own client');
+  await clock.tick(10_000);
+  assert.equal(reads, 2, 'and keeps retrying');
+  await clock.tick(20_000);
+  assert.equal(reads, 3);
+  assert.equal(statuses.at(-1).connected, true);
+});
+
+test('a button pressed during an automatic read joins it', async (t) => {
+  const ctx = await onlineSession(t, [undefined, notFound()]);
+  const { session, clock, feed, client } = ctx;
+  await restart(feed);
+  let answer;
+  const getVersion = client.getVersion;
+  client.getVersion = () => {
+    ctx.reads += 1;
+    return new Promise((resolve) => {
+      answer = resolve;
+    });
+  };
+  await clock.tick(5_000);
+  assert.equal(ctx.reads, 2, 'the retry is reading');
+  const tested = session.testConnection();
+  const refreshed = session.refreshCameras();
+  await clock.tick(0);
+  assert.equal(ctx.reads, 2, 'no second read');
+  client.getVersion = getVersion;
+  answer('0.17.2');
+  assert.match((await tested).en, /Frigate 0\.17\.2: 2 cameras/);
+  assert.match((await refreshed).en, /read again: 2 cameras/);
+});
+
+test('back online after a failed read, Frigate is read again 5 s after it at the soonest', async (t) => {
+  const ctx = await onlineSession(t, [undefined, notFound(), notFound()]);
+  const { clock, feed } = ctx;
+  await restart(feed);
+  assert.equal(ctx.reads, 1);
+  await restart(feed);
+  assert.equal(ctx.reads, 1, 'flapping right after a failed read: no read yet');
+  await clock.tick(4_999);
+  assert.equal(ctx.reads, 1);
+  await clock.tick(1);
+  assert.equal(ctx.reads, 2);
+});
+
+test('HTTP errors say what to check', () => {
+  const login = describeError(new LoginMissingError());
+  assert.match(login.en, /asks for a login but has no \/api\/login.*Check the URL/);
+  assert.match(login.fr, /n'a pas de \/api\/login.*Vérifiez l'URL/);
+  assert.match(describeError(new HttpStatusError(302, '/api/version')).en, /redirects elsewhere/);
+  assert.match(describeError(new HttpStatusError(404, '/api/version')).fr, /démarrage de Frigate/);
+  assert.match(describeError(new HttpStatusError(400, '/api/config')).en, /check the URL/);
+  assert.doesNotMatch(describeError(new HttpStatusError(502, '/api/version')).en, /URL/);
+});
+
+test('"Trust the new certificate" during a read reads the new client, not the old one', async (t) => {
+  const ctx = await onlineSession(t, [undefined, notFound()]);
+  const { session, clock, feed, client, clientFactory } = ctx;
+  await restart(feed);
+  let answerOld;
+  client.getVersion = () =>
+    new Promise((resolve) => {
+      answerOld = resolve;
+    });
+  await clock.tick(5_000);
+  assert.ok(answerOld, 'the retry of the old client is reading');
+  let answer = null;
+  const reset = session.resetCertificate().then((value) => (answer = value));
+  for (let i = 0; i < 10; i += 1) await settle();
+  const done = answer;
+  answerOld('0.17.2'); // never leave the old read (or a mutant joining it) hanging
+  await reset;
+  assert.equal(clientFactory.created.length, 2, 'a new client');
+  assert.ok(done, 'answered without waiting for the old client');
+  assert.match(done.en, /Pinned certificates forgotten\. Frigate certificate/);
 });

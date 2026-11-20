@@ -250,7 +250,10 @@ minute ; le statut dit quand (« Nouvel essai dans 20 s »). Tant que MQTT dit
 Frigate hors ligne, elle attend plutôt qu'il s'annonce de retour. Une action
 de scène qui a besoin de Frigate pendant l'attente (joindre l'instantané de
 l'événement) avance l'essai suivant ; l'action elle-même échoue encore, la
-suivante passe dès que Frigate répond. Un
+suivante passe dès que Frigate répond. Une erreur HTTP qui dure (404,
+redirection, « demande une connexion mais n'a pas de /api/login ») signifie
+le plus souvent que l'URL ou le port ne vise pas l'API de Frigate : le statut
+dit quoi vérifier, et les essais continuent une fois par minute. Un
 certificat ou des identifiants refusés attendent en revanche votre action :
 réessayer ne ferait que bloquer le compte (Frigate limite les connexions
 échouées).

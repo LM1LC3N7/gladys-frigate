@@ -171,7 +171,10 @@ export function createFrigateSession({
   let retryTimer = null;
   let retryCount = 0; // failed reads in a row, for the backoff
   let lastAttempt = -Infinity; // start of the last read of Frigate
-  let autoInFlight = null; // the automatic read running (retry, resync, kick)
+  // The read running, with its generation: { generation, promise } | null.
+  // Only a read of the current generation is joined (an older one ends
+  // silently, and would leave the retry chain dead).
+  let inFlight = null;
   let failureLogged = null; // last failure logged, to log a lasting one once
   // Bumped on every apply(): a slow check of an older configuration must
   // not overwrite the status of the current one.
@@ -274,11 +277,17 @@ export function createFrigateSession({
       if (currentGeneration !== generation) {
         return;
       }
-      autoCheck(currentGeneration)
+      read(currentGeneration)
         .then(() => refreshActivity(currentGeneration))
         .catch(() => {});
     };
-    const wait = lastRead + resyncDelayMs - now();
+    // After a failed read, not sooner than a retry would (a Frigate
+    // flapping offline/online while its API fails).
+    const notBefore = Math.max(
+      lastRead + resyncDelayMs,
+      capabilities ? -Infinity : lastAttempt + retryBaseMs,
+    );
+    const wait = notBefore - now();
     if (wait <= 0) {
       run();
       return;
@@ -425,24 +434,28 @@ export function createFrigateSession({
       if (currentGeneration !== generation) {
         return;
       }
-      autoCheck(currentGeneration)
+      read(currentGeneration)
         .then(() => refreshActivity(currentGeneration))
         .catch(() => {});
     }, delay);
     retryTimer.unref?.();
   }
 
-  /** An automatic read: one at a time, joined by the others meanwhile. */
-  function autoCheck(currentGeneration) {
-    if (!autoInFlight) {
-      const running = check(currentGeneration).finally(() => {
-        if (autoInFlight === running) {
-          autoInFlight = null;
+  /**
+   * Read Frigate: one read at a time per generation (retry, resync, kick,
+   * scan, buttons, apply), joined by the others meanwhile.
+   */
+  function read(currentGeneration) {
+    if (inFlight?.generation !== currentGeneration) {
+      const entry = { generation: currentGeneration, promise: null };
+      entry.promise = check(currentGeneration).finally(() => {
+        if (inFlight === entry) {
+          inFlight = null;
         }
       });
-      autoInFlight = running;
+      inFlight = entry;
     }
-    return autoInFlight;
+    return inFlight.promise;
   }
 
   /** Read Frigate and publish the status; schedules a retry on a retryable failure. */
@@ -565,7 +578,7 @@ export function createFrigateSession({
         return;
       }
       await replaceClient();
-      await check(currentGeneration).catch(() => {});
+      await read(currentGeneration).catch(() => {});
     },
 
     /** The last capabilities read (null while not connected). */
@@ -586,7 +599,7 @@ export function createFrigateSession({
       if (capabilities || !client) {
         return capabilities;
       }
-      await autoCheck(generation).catch(() => {});
+      await read(generation).catch(() => {});
       return capabilities;
     },
 
@@ -602,7 +615,7 @@ export function createFrigateSession({
         await stopFeed();
       }
       try {
-        await check(generation);
+        await read(generation);
         parts.push(
           {
             en: `Frigate ${capabilities.version.raw}: ${cameraSummary(capabilities).en}.`,
@@ -637,7 +650,7 @@ export function createFrigateSession({
         return invalidConfigAnswer();
       }
       try {
-        await check(generation);
+        await read(generation);
       } catch (err) {
         return describeError(err);
       }
@@ -661,7 +674,11 @@ export function createFrigateSession({
           fr: 'Certificats épinglés oubliés. Complétez la configuration pour vous connecter.',
         };
       }
-      // Pooled connections were trusted under the old pins: start afresh.
+      // Pooled connections were trusted under the old pins: start afresh,
+      // as a new generation (a read of the old client is not joined, and
+      // its result is dropped).
+      generation += 1;
+      stopRetry();
       await replaceClient();
       const parts = [
         {
@@ -670,7 +687,7 @@ export function createFrigateSession({
         },
       ];
       try {
-        await check(generation);
+        await read(generation);
         const decision = client.tlsDecision;
         parts.push(
           decision
@@ -715,7 +732,7 @@ export function createFrigateSession({
       const currentGeneration = generation;
       clearTimeout(retryTimer);
       retryTimer = null;
-      autoCheck(currentGeneration)
+      read(currentGeneration)
         .then(() => refreshActivity(currentGeneration))
         .catch(() => {});
     },

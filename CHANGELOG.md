@@ -25,6 +25,13 @@ All notable changes to this project are documented here. The format follows
   be answered without a token, and a 401 afterwards logs in again. A token
   renewal answered 404 keeps the token instead of trying again at every
   request.
+- A lasting HTTP error now says what to check: a redirect or a 404 points to
+  the URL or the port, and an API asking for a login without `/api/login`
+  (Frigate starting, or a proxy in front of it) has its own message.
+- One read of Frigate at a time also for the buttons and a new
+  configuration; a read of a previous configuration is never joined (the
+  retries could stop for good). Back online right after a failed read,
+  Frigate is read again 5 s after it at the soonest.
 
 ### Security
 

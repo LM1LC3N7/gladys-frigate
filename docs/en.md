@@ -233,7 +233,10 @@ seconds, then twice as late each time, up to once a minute; the status says
 when ("New attempt in 20 s"). While MQTT says Frigate is offline it waits for
 Frigate to announce it is back instead. A scene action that needs Frigate
 during the wait (attach the event snapshot) brings the next attempt forward;
-the action itself still fails, the next one works once Frigate answers. A
+the action itself still fails, the next one works once Frigate answers. An
+HTTP error that lasts (404, a redirect, "asks for a login but has no
+/api/login") usually means the URL or the port does not point to the Frigate
+API: the status says what to check, and the attempts go on once a minute. A
 refused certificate or refused credentials wait for you instead: retrying
 would only lock the account out (Frigate limits failed logins).
 

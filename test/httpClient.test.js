@@ -11,6 +11,7 @@ import {
   CertificateError,
   FrigateError,
   HttpStatusError,
+  LoginMissingError,
   UnreachableError,
 } from '../src/frigate/errors.js';
 import { TRUST_REASONS, TrustStore, endpointKey } from '../src/frigate/tlsTrust.js';
@@ -212,7 +213,7 @@ test('auth: a login 404 while Frigate starts is a temporary failure, not "auth d
   for (let i = 0; i < 2; i += 1) {
     await assert.rejects(
       frigateClient.getConfig(),
-      (err) => err instanceof HttpStatusError && err.status === 404 && err.path === '/api/login',
+      (err) => err instanceof LoginMissingError && err.status === 404 && err.path === '/api/login',
     );
     assert.notEqual(frigateClient.authMode, 'disabled');
   }

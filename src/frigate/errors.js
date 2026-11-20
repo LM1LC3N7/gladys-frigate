@@ -49,6 +49,17 @@ export class HttpStatusError extends FrigateError {
   }
 }
 
+/**
+ * The API asks for a login (401 even without a token) but /api/login
+ * answers 404: Frigate still starting, or an authenticating proxy in front
+ * of it. Temporary for the caller (retried), with its own message.
+ */
+export class LoginMissingError extends HttpStatusError {
+  constructor() {
+    super(404, '/api/login');
+  }
+}
+
 /** No answer: DNS, refused or reset connection, timeout. */
 export class UnreachableError extends FrigateError {
   /** @param {string} code a Node error code (ECONNREFUSED…) or 'TIMEOUT' */

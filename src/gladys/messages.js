@@ -9,11 +9,35 @@ import {
   AuthError,
   CertificateError,
   HttpStatusError,
+  LoginMissingError,
   MqttRefusedError,
   UnreachableError,
   UnsupportedVersionError,
 } from '../frigate/errors.js';
 import { TRUST_REASONS } from '../frigate/tlsTrust.js';
+
+// Retried by themselves, but a lasting one usually means a wrong URL.
+const HTTP_HINTS = {
+  redirect: {
+    en: 'It redirects elsewhere: check the URL (http or https, port, path).',
+    fr: "Il redirige ailleurs : vérifiez l'URL (http ou https, port, chemin).",
+  },
+  notFound: {
+    en: 'Normal for a minute while Frigate starts; if it lasts, the URL does not point to the Frigate API (port, path).',
+    fr: "Normal pendant une minute au démarrage de Frigate ; si cela dure, l'URL ne vise pas l'API de Frigate (port, chemin).",
+  },
+  client: {
+    en: 'If it lasts, check the URL (port, path).',
+    fr: "Si cela dure, vérifiez l'URL (port, chemin).",
+  },
+};
+
+function httpHintKey(status) {
+  if (status >= 300 && status < 400) return 'redirect';
+  if (status === 404) return 'notFound';
+  if (status >= 400 && status < 500) return 'client';
+  return null;
+}
 
 /** "AB:CD:EF:01:…:7A:8B:9C:0D" — enough to compare with openssl's output. */
 export function shortFingerprint(fingerprint) {
@@ -116,10 +140,17 @@ export function describeError(err, what = { en: 'Frigate', fr: 'Frigate' }) {
       fr: `Frigate ${err.version} n'est pas pris en charge : la version 0.16 ou plus est nécessaire.`,
     };
   }
-  if (err instanceof HttpStatusError) {
+  if (err instanceof LoginMissingError) {
     return {
-      en: `${what.en} answered with an error (HTTP ${err.status} on ${err.path}).`,
-      fr: `${what.fr} a répondu par une erreur (HTTP ${err.status} sur ${err.path}).`,
+      en: `${what.en} asks for a login but has no /api/login (HTTP 404): Frigate is still starting, or the URL points to a proxy or another service. Check the URL and the port (8971 for Frigate's own login).`,
+      fr: `${what.fr} demande une connexion mais n'a pas de /api/login (HTTP 404) : Frigate démarre encore, ou l'URL vise un proxy ou un autre service. Vérifiez l'URL et le port (8971 pour la connexion propre à Frigate).`,
+    };
+  }
+  if (err instanceof HttpStatusError) {
+    const hint = HTTP_HINTS[httpHintKey(err.status)];
+    return {
+      en: `${what.en} answered with an error (HTTP ${err.status} on ${err.path}).${hint ? ` ${hint.en}` : ''}`,
+      fr: `${what.fr} a répondu par une erreur (HTTP ${err.status} sur ${err.path}).${hint ? ` ${hint.fr}` : ''}`,
     };
   }
   return {

@@ -19,7 +19,13 @@
 // -----------------------------------------------------------------------------
 
 import { Agent, fetch } from 'undici';
-import { AuthError, FrigateError, HttpStatusError, UnreachableError } from './errors.js';
+import {
+  AuthError,
+  FrigateError,
+  HttpStatusError,
+  LoginMissingError,
+  UnreachableError,
+} from './errors.js';
 import { createConnector } from './tlsConnector.js';
 import { TRUST_REASONS } from './tlsTrust.js';
 
@@ -278,7 +284,7 @@ export function createFrigateClient({
           // Login unknown yet the API wants one: Frigate is starting. A
           // temporary failure, retried by the caller, never a refusal.
           await response.body?.cancel();
-          throw new HttpStatusError(404, '/api/login');
+          throw new LoginMissingError();
         }
         if (response.ok) {
           auth.mode = 'disabled';
