@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-20
+
 ### Fixed
 
 - Frigate stayed "not connected" after a Frigate restart until the
@@ -226,5 +228,6 @@ All notable changes to this project are documented here. The format follows
 - CI runs with a read-only `GITHUB_TOKEN`; the test-only TLS material stays
   out of the Docker build context.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-frigate/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-frigate/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/LM1LC3N7/gladys-frigate/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/LM1LC3N7/gladys-frigate/compare/v0.3.2...v0.3.3
