@@ -19,6 +19,11 @@ All notable changes to this project are documented here. The format follows
   the wait brings the next attempt forward (at most once per 5 s). Refused
   credentials or certificates are still never retried.
 
+### Security
+
+- undici 8.13.0 (advisories against 8.0.0 to 8.12.1: denial of service, TLS
+  options dropped in Agent, cross-origin redirect cache), ip-address 10.7.6.
+
 ## [0.3.3] - 2026-10-13
 
 ### Changed
