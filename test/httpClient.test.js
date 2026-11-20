@@ -15,7 +15,7 @@ import {
 } from '../src/frigate/errors.js';
 import { TRUST_REASONS, TrustStore, endpointKey } from '../src/frigate/tlsTrust.js';
 import { TEST_CA_PEM, TEST_SERVER_CERT_PEM } from './helpers/certificates.js';
-import { fakeJwt, startFakeFrigate } from './helpers/fakeFrigate.js';
+import { FRIGATE_CONFIG, fakeJwt, startFakeFrigate } from './helpers/fakeFrigate.js';
 
 const SERVER_FINGERPRINT = new X509Certificate(TEST_SERVER_CERT_PEM).fingerprint256;
 const OTHER_FINGERPRINT = Array(32).fill('AA').join(':');
@@ -179,6 +179,116 @@ test('auth: the token is renewed 5 minutes before it expires', async (t) => {
   clock += 6 * 60 * 1000; // 4 minutes left
   await frigateClient.getConfig();
   assert.equal(frigate.calls.filter((call) => call.url === '/api/login').length, 2);
+});
+
+/** A fake Frigate whose behaviour follows `phase.value` (see each test). */
+function phased(phase, handlers) {
+  return (req, res) => {
+    const handle = handlers[phase.value];
+    return handle ? handle(req, res) : false;
+  };
+}
+
+const answer = (res, status, body = '') => {
+  res.statusCode = status;
+  res.end(body);
+  return true;
+};
+
+test('auth: a login 404 while Frigate starts is a temporary failure, not "auth disabled"', async (t) => {
+  const phase = { value: 'starting' };
+  const frigate = await startFakeFrigate({
+    override: phased(phase, {
+      // Starting: no login route yet, the API still wants a token.
+      starting: (req, res) =>
+        req.url === '/api/login'
+          ? answer(res, 404)
+          : answer(res, 401, '{"message":"unauthorized"}'),
+    }),
+  });
+  t.after(() => frigate.close());
+  const frigateClient = client(frigate);
+  t.after(() => frigateClient.close());
+  for (let i = 0; i < 2; i += 1) {
+    await assert.rejects(
+      frigateClient.getConfig(),
+      (err) => err instanceof HttpStatusError && err.status === 404 && err.path === '/api/login',
+    );
+    assert.notEqual(frigateClient.authMode, 'disabled');
+  }
+  phase.value = 'up';
+  const config = await frigateClient.getConfig();
+  assert.ok(config.cameras.front);
+  assert.equal(frigateClient.authMode, 'token', 'logged in once Frigate is up');
+});
+
+test('auth: "disabled" only on an answer without token; a later 401 logs in again', async (t) => {
+  const phase = { value: 'busy' };
+  let first401 = true;
+  let busyRequests = 0;
+  const frigate = await startFakeFrigate({
+    override: phased(phase, {
+      // Login 404 and the request without token fails (503): no conclusion.
+      busy: (req, res) => {
+        if (req.url === '/api/login') return answer(res, 404);
+        busyRequests += 1;
+        return answer(res, busyRequests === 1 ? 401 : 503);
+      },
+      // Authentication disabled: login 404, every request answered.
+      disabled: (req, res) => {
+        if (req.url === '/api/login') return answer(res, 404);
+        if (first401) {
+          first401 = false;
+          return answer(res, 401);
+        }
+        res.setHeader('content-type', 'application/json');
+        return answer(res, 200, JSON.stringify(FRIGATE_CONFIG));
+      },
+      // 'auth': the fake's own authentication (account gladys / pw).
+    }),
+  });
+  t.after(() => frigate.close());
+  const frigateClient = client(frigate);
+  t.after(() => frigateClient.close());
+
+  // First request 401, then 503 without a token: not "disabled".
+  await assert.rejects(
+    frigateClient.getConfig(),
+    (err) => err instanceof HttpStatusError && err.status === 503,
+  );
+  assert.notEqual(frigateClient.authMode, 'disabled');
+
+  phase.value = 'disabled';
+  await frigateClient.getConfig();
+  assert.equal(frigateClient.authMode, 'disabled', 'answered without a token');
+  const unauthenticated = frigate.calls.at(-1);
+  assert.equal(unauthenticated.authorization, undefined);
+
+  phase.value = 'auth';
+  const config = await frigateClient.getConfig();
+  assert.ok(config.cameras.front);
+  assert.equal(frigateClient.authMode, 'token', 'a 401 after "disabled" logs in again');
+});
+
+test('auth: a renewal answered 404 keeps the token, without a login per request', async (t) => {
+  const phase = { value: 'up' };
+  const frigate = await startFakeFrigate({
+    override: phased(phase, {
+      noLogin: (req, res) => (req.url === '/api/login' ? answer(res, 404) : false),
+    }),
+  });
+  t.after(() => frigate.close());
+  let clock = Date.now();
+  const frigateClient = client(frigate, { now: () => clock });
+  t.after(() => frigateClient.close());
+  frigate.setTokenExp(Math.floor(clock / 1000) + 600);
+  await frigateClient.getConfig();
+  clock += 6 * 60 * 1000; // 4 minutes left: renewal due
+  phase.value = 'noLogin';
+  for (let i = 0; i < 3; i += 1) await frigateClient.getConfig();
+  assert.equal(frigate.calls.filter((call) => call.url === '/api/login').length, 2);
+  assert.equal(frigateClient.authMode, 'token');
+  assert.match(frigate.calls.at(-1).authorization, /^Bearer /);
 });
 
 test('GET is retried on 5xx, never on 4xx; redirects are not followed', async (t) => {

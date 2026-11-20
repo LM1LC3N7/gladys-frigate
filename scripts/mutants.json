@@ -76,5 +76,35 @@
     "file": "src/gladys/frigateSession.js",
     "from": "      generation += 1;\n      stopRetry();\n      await stopFeed();",
     "to": "      generation += 1;\n      await stopFeed();"
+  },
+  {
+    "name": "index.js: no kick when Frigate is not connected",
+    "file": "index.js",
+    "from": "  if (!client) session.kick();\n",
+    "to": ""
+  },
+  {
+    "name": "login 404 switches to \"disabled\" at once",
+    "file": "src/frigate/httpClient.js",
+    "from": "      return 'not_found';",
+    "to": "      auth.mode = 'disabled';\n      auth.token = null;\n      return 'not_found';"
+  },
+  {
+    "name": "\"disabled\" without an answer without token",
+    "file": "src/frigate/httpClient.js",
+    "from": "        if (response.ok) {\n          auth.mode = 'disabled';",
+    "to": "        if (response.status !== 401) {\n          auth.mode = 'disabled';"
+  },
+  {
+    "name": "login 404 + 401 is a refusal",
+    "file": "src/frigate/httpClient.js",
+    "from": "          throw new HttpStatusError(404, '/api/login');",
+    "to": "          throw new AuthError('invalid_credentials');"
+  },
+  {
+    "name": "renewal answered 404 retried at every request",
+    "file": "src/frigate/httpClient.js",
+    "from": "        auth.expiresAt = null;\n      }\n    }\n    let response",
+    "to": "      }\n    }\n    let response"
   }
 ]

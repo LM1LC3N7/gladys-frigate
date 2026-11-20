@@ -18,6 +18,13 @@ All notable changes to this project are documented here. The format follows
   integration stops. A scene action or an image that needs Frigate during
   the wait brings the next attempt forward (at most once per 5 s). Refused
   credentials or certificates are still never retried.
+- With authentication on, a 404 on `/api/login` while Frigate starts switched
+  the client to "authentication disabled" for good, and the next 401 was
+  reported as refused credentials (never retried). A login 404 is now a
+  temporary failure retried like the others; "disabled" needs the request to
+  be answered without a token, and a 401 afterwards logs in again. A token
+  renewal answered 404 keeps the token instead of trying again at every
+  request.
 
 ### Security
 

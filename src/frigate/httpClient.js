@@ -120,8 +120,10 @@ export function createFrigateClient({
 
   const auth = {
     // 'unknown' until the first answer, then 'token' (logged in), 'none'
-    // (the port answered without a token) or 'disabled' (login 404: auth
-    // disabled in Frigate 0.18+).
+    // (the port answered without a token) or 'disabled' (login 404 and the
+    // request then answered without a token: auth disabled in Frigate
+    // 0.18+). A login 404 alone proves nothing: Frigate answers it too while
+    // it starts. A later 401 logs in again from any mode.
     mode: 'unknown',
     token: null,
     expiresAt: null,
@@ -193,7 +195,11 @@ export function createFrigateClient({
 
   let loginInFlight = null;
 
-  /** Concurrent requests that hit a 401 share one login (rate-limited by Frigate). */
+  /**
+   * Concurrent requests that hit a 401 share one login (rate-limited by
+   * Frigate). Resolves 'ok' (token stored) or 'not_found' (login 404:
+   * authentication disabled, or Frigate still starting; nothing changed).
+   */
   function login() {
     loginInFlight ??= doLogin().finally(() => {
       loginInFlight = null;
@@ -209,10 +215,9 @@ export function createFrigateClient({
     });
     await response.body?.cancel();
     if (response.status === 404) {
-      // Frigate 0.18 answers 404 when authentication is disabled.
-      auth.mode = 'disabled';
-      auth.token = null;
-      return;
+      // Authentication disabled (Frigate 0.18), or Frigate still starting:
+      // the caller decides on the answer of the request without a token.
+      return 'not_found';
     }
     if (response.status === 401 || response.status === 400) {
       throw new AuthError('invalid_credentials');
@@ -230,6 +235,7 @@ export function createFrigateClient({
     auth.mode = 'token';
     auth.token = token;
     auth.expiresAt = jwtExpiry(token);
+    return 'ok';
   }
 
   async function readBody(response, maxBytes) {
@@ -255,7 +261,10 @@ export function createFrigateClient({
    */
   async function request(path, { maxBytes = DEFAULT_MAX_BYTES } = {}) {
     if (auth.mode === 'token' && auth.expiresAt && auth.expiresAt - now() < TOKEN_RENEW_MARGIN_MS) {
-      await login();
+      if ((await login()) === 'not_found') {
+        // Keep the token until a 401 says more (no login at every request).
+        auth.expiresAt = null;
+      }
     }
     let response = await send(path);
     if (response.status === 401) {
@@ -263,11 +272,25 @@ export function createFrigateClient({
       if (!hasCredentials) {
         throw new AuthError('credentials_required');
       }
-      await login();
-      response = await send(path);
-      if (response.status === 401) {
-        await response.body?.cancel();
-        throw new AuthError('invalid_credentials');
+      if ((await login()) === 'not_found') {
+        response = await send(path, { withToken: false });
+        if (response.status === 401) {
+          // Login unknown yet the API wants one: Frigate is starting. A
+          // temporary failure, retried by the caller, never a refusal.
+          await response.body?.cancel();
+          throw new HttpStatusError(404, '/api/login');
+        }
+        if (response.ok) {
+          auth.mode = 'disabled';
+          auth.token = null;
+          auth.expiresAt = null;
+        }
+      } else {
+        response = await send(path);
+        if (response.status === 401) {
+          await response.body?.cancel();
+          throw new AuthError('invalid_credentials');
+        }
       }
     } else if (auth.mode === 'unknown' && response.ok) {
       auth.mode = 'none';
